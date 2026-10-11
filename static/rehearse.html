@@ -38,12 +38,12 @@ input[type=text],select{padding:8px 10px;border:1px solid var(--line);border-rad
 .vrow:last-child{border:none}.vrow .who{min-width:190px}
 /* live */
 .panel{display:flex;gap:18px;flex-wrap:wrap;justify-content:center;padding:6px 0 2px}
-.member{text-align:center;width:112px}
-.member .big{width:64px;height:64px;border-radius:50%;margin:0 auto 6px;background:radial-gradient(circle at 35% 30%,#fff8,var(--c) 62%);box-shadow:0 0 8px var(--c);transition:box-shadow .2s,transform .2s;opacity:.85}
-.member.thinking .big{animation:breathe 2.2s ease-in-out infinite}
-.member.speaking .big{animation:talk .55s ease-in-out infinite;opacity:1}
-@keyframes breathe{50%{transform:scale(1.06);box-shadow:0 0 16px var(--c)}}
-@keyframes talk{0%,100%{transform:scale(1);box-shadow:0 0 18px var(--c)}50%{transform:scale(1.14);box-shadow:0 0 42px 6px var(--c)}}
+.member{text-align:center;width:150px;transition:opacity .35s}
+.member canvas.big{width:132px;height:132px;display:block;margin:0 auto 4px;opacity:.82;transition:transform .35s ease,opacity .35s,filter .35s}
+.member.speaking canvas.big{transform:scale(1.08);opacity:1}
+.panel:has(.member.speaking) .member:not(.speaking) canvas.big{opacity:1;filter:brightness(.62) saturate(.75)}
+.panel:has(.member.speaking) .member:not(.speaking) .nm,.panel:has(.member.speaking) .member:not(.speaking) .tt{opacity:.55}
+.member.speaking .nm{color:var(--c)}
 .member .nm{font-weight:650;font-size:14px}.member .tt{font-size:11px;color:var(--muted);line-height:1.2}
 .member .kdm{font-size:10px;color:var(--accent);font-weight:700;letter-spacing:.4px}
 .grid2{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,6fr);gap:16px}
@@ -160,6 +160,7 @@ td{padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:top}
 <section id="results" class="hidden"></section>
 
 </main>
+<script src="/static/orb.js"></script>
 <script>
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -323,9 +324,11 @@ async function pollSlide() {
 
 /* ================= panel ================= */
 function members() {
-  $('#members').innerHTML = S.personas.map(p => `<div class="member" id="m_${esc(p.id)}" style="--c:${esc(p.colour)}"><div class="big"></div>
+  $('#members').innerHTML = S.personas.map(p => `<div class="member" id="m_${esc(p.id)}" style="--c:${esc(p.colour)}"><canvas class="big" data-orb="${esc(p.colour)}"></canvas>
     <div class="nm">${esc(p.name)}</div><div class="tt">${esc(p.title)}</div>${p.key_decision_maker ? '<div class="kdm">DECISION-MAKER</div>' : ''}</div>`).join('');
+  PitchOrb.attachAll($('#members'));
 }
+window.__orbListening = () => S.phase !== 'done' && !!S.rec && !S.speaking && !S.paused;
 const mem = id => $('#m_' + id);
 function thinking(on) { document.querySelectorAll('.member').forEach(m => m.classList.toggle('thinking', on && !S.speaking)); }
 async function panelSpeaks(pid, text, target, about, kind) {
