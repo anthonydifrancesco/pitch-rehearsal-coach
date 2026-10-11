@@ -1,0 +1,512 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rehearsal · Pitch Rehearsal Coach</title>
+<style>
+:root{
+  --bg:#f6f5f2; --panel:#ffffff; --ink:#1d1d1b; --muted:#6b6a66; --line:#e2e0da;
+  --accent:#8a1c2b; --accent-ink:#ffffff; --ok:#2e7d4f; --warn:#b7791f; --bad:#b3261e; --info:#2a5db0; --chip:#eeece6;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#16161a; --panel:#1f1f25; --ink:#ecebe7; --muted:#a09f99; --line:#33333b;
+    --accent:#d0566a; --accent-ink:#16161a; --ok:#59b57f; --warn:#e0a94a; --bad:#ef7b73; --info:#7aa7ee; --chip:#2a2a32; }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{display:flex;align-items:center;gap:14px;padding:12px 24px;border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0;z-index:5}
+header h1{font-size:17px;margin:0;font-weight:650}
+header a{color:var(--muted);text-decoration:none;font-size:13px}
+#clock{margin-left:auto;font-variant-numeric:tabular-nums;font-weight:650;font-size:18px}
+.pill{padding:3px 11px;border-radius:99px;background:var(--chip);font-size:13px;color:var(--muted)}
+.pill.live{background:color-mix(in srgb,var(--bad) 16%,transparent);color:var(--bad);font-weight:650}
+main{max-width:1180px;margin:0 auto;padding:22px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:16px}
+.card h2{font-size:15px;margin:0 0 4px}.card p.hint{margin:0 0 12px;color:var(--muted);font-size:13px}
+button,.btn{font:inherit;cursor:pointer;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:8px 14px;text-decoration:none;display:inline-block}
+button.primary,.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600;padding:11px 20px}
+button.small{padding:4px 10px;font-size:13px}button:disabled{opacity:.5;cursor:default}
+input[type=text],select{padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font:inherit;max-width:100%}
+.hidden{display:none!important}.muted{color:var(--muted)}.small{font-size:13px}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.chk{display:flex;gap:10px;align-items:flex-start;padding:7px 0;border-bottom:1px solid var(--line)}
+.chk:last-child{border:none}.dot{width:11px;height:11px;border-radius:50%;margin-top:6px;background:var(--line);flex:none}
+.dot.ok{background:var(--ok)}.dot.bad{background:var(--bad)}.dot.warn{background:var(--warn)}
+.orb{width:30px;height:30px;border-radius:50%;flex:none;box-shadow:0 0 10px var(--c);background:radial-gradient(circle at 35% 30%,#fff9,var(--c) 62%)}
+.vrow{display:flex;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.vrow:last-child{border:none}.vrow .who{min-width:190px}
+/* live */
+.panel{display:flex;gap:18px;flex-wrap:wrap;justify-content:center;padding:6px 0 2px}
+.member{text-align:center;width:112px}
+.member .big{width:64px;height:64px;border-radius:50%;margin:0 auto 6px;background:radial-gradient(circle at 35% 30%,#fff8,var(--c) 62%);box-shadow:0 0 8px var(--c);transition:box-shadow .2s,transform .2s;opacity:.85}
+.member.thinking .big{animation:breathe 2.2s ease-in-out infinite}
+.member.speaking .big{animation:talk .55s ease-in-out infinite;opacity:1}
+@keyframes breathe{50%{transform:scale(1.06);box-shadow:0 0 16px var(--c)}}
+@keyframes talk{0%,100%{transform:scale(1);box-shadow:0 0 18px var(--c)}50%{transform:scale(1.14);box-shadow:0 0 42px 6px var(--c)}}
+.member .nm{font-weight:650;font-size:14px}.member .tt{font-size:11px;color:var(--muted);line-height:1.2}
+.member .kdm{font-size:10px;color:var(--accent);font-weight:700;letter-spacing:.4px}
+.grid2{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,6fr);gap:16px}
+@media (max-width:860px){.grid2{grid-template-columns:1fr}}
+.slidecard{text-align:center;padding:22px 14px}
+.slidecard .num{font-size:60px;font-weight:700;line-height:1;color:var(--accent)}
+.slidecard .of{color:var(--muted);font-size:14px}.slidecard .ttl{font-size:17px;font-weight:600;margin:10px 0 6px}
+.chip{display:inline-block;background:var(--chip);border-radius:6px;padding:1px 8px;font-size:12px;margin:2px}
+.pace-quick{color:var(--info)}.pace-weighty{color:var(--accent);font-weight:700}
+#feed{height:330px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--bg);font-size:14px}
+#feed .l{margin:5px 0}#feed .t{color:var(--muted);font-size:11px;margin-right:6px;font-variant-numeric:tabular-nums}
+#feed .p{color:var(--accent);font-weight:600}#feed .s{color:var(--muted);font-style:italic;font-size:13px}#feed .i{color:var(--muted)}
+.banner{padding:11px 14px;border-radius:8px;margin-bottom:14px;font-size:14px}
+.banner.bad{background:color-mix(in srgb,var(--bad) 14%,transparent);color:var(--bad)}
+.banner.info{background:color-mix(in srgb,var(--info) 12%,transparent);color:var(--info)}
+.banner.warn{background:color-mix(in srgb,var(--warn) 16%,transparent);color:var(--warn)}
+.spin{display:inline-block;width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:s 1s linear infinite;vertical-align:-2px;margin-right:8px}
+@keyframes s{to{transform:rotate(360deg)}}
+/* results */
+.scores{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:12px 0}
+.score{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.score b{display:block;font-size:30px;line-height:1.1}.score span{font-size:12px;color:var(--muted)}
+.bar{height:12px;border-radius:6px;background:var(--chip);overflow:hidden;margin:4px 0}.bar i{display:block;height:100%;background:var(--accent)}
+table{width:100%;border-collapse:collapse;font-size:14px;min-width:620px}
+th{text-align:left;font-size:12px;color:var(--muted);font-weight:600;padding:6px 8px;border-bottom:1px solid var(--line)}
+td{padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+.tw{overflow-x:auto}
+.badge{display:inline-block;padding:2px 9px;border-radius:99px;font-size:12px;font-weight:600;background:var(--chip);color:var(--muted)}
+.b-yes,.b-clear{background:color-mix(in srgb,var(--ok) 16%,transparent);color:var(--ok)}
+.b-partial,.b-rushed,.b-waffled{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
+.b-no,.b-skipped{background:color-mix(in srgb,var(--bad) 15%,transparent);color:var(--bad)}
+#typed{flex:1;min-width:0}
+</style>
+</head>
+<body>
+<header>
+  <a href="/">← Pre-read</a>
+  <h1>Rehearsal</h1>
+  <span class="pill" id="phasePill">Setting up</span>
+  <span id="clock" class="hidden">00:00</span>
+</header>
+<main>
+
+<!-- ============ PRE-FLIGHT ============ -->
+<section id="pre">
+  <div class="banner info" id="privacy"><b>Privacy:</b> your browser turns speech into text using its maker's online service (Google for Chrome, Microsoft for Edge). The panel's questions are written by Claude via the Anthropic API. Voices are free and come from your computer.</div>
+  <div class="card">
+    <h2>Check everything works</h2>
+    <p class="hint" id="pitchName"></p>
+    <div id="checks"></div>
+    <div class="row" style="margin-top:10px">
+      <button class="small" id="micTest">Test microphone</button>
+      <span id="micOut" class="muted small"></span>
+    </div>
+  </div>
+  <div class="card">
+    <h2>Panel voices</h2>
+    <p class="hint">Each panel member gets a different free voice from your computer. Pick another if you prefer, then press Hear.</p>
+    <label class="row small" style="margin-bottom:8px"><input type="checkbox" id="online"> Use high-quality online voices if available (Edge: the panel's spoken text goes to Microsoft)</label>
+    <div id="voices"></div>
+  </div>
+  <div class="card">
+    <h2>This rehearsal</h2>
+    <div class="row">
+      <label>Your name <input type="text" id="presenter" style="width:160px"></label>
+      <label>Start on slide <select id="startSlide"></select></label>
+      <label class="row small"><input type="checkbox" id="cue"> Show the slide's key message as a cue</label>
+    </div>
+    <p class="hint" style="margin-top:12px">Open your deck in PowerPoint and start the slide show. Keep this tab open in the background. The panel follows your slides and listens. Interjection setting: <b id="lvl"></b>/10.</p>
+    <button class="primary" id="start">Start rehearsal</button>
+    <span id="startMsg" class="muted small" style="margin-left:10px"></span>
+  </div>
+</section>
+
+<!-- ============ LIVE (pitch + Q&A) ============ -->
+<section id="liveWrap" class="hidden">
+  <div id="banner"></div>
+  <div class="card"><div class="panel" id="members"></div></div>
+  <div class="grid2">
+    <div class="card slidecard">
+      <div class="of">Slide</div><div class="num" id="sNum">1</div><div class="of" id="sOf"></div>
+      <div class="ttl" id="sTitle"></div>
+      <div class="small"><span id="sPace" class="chip"></span></div>
+      <div class="small muted" id="sCue" style="margin-top:8px"></div>
+      <div class="row" style="justify-content:center;margin-top:14px">
+        <button class="small" id="prev">◀ Back</button><button class="small" id="next">Next ▶</button>
+      </div>
+      <div class="small muted" style="margin-top:8px" id="slideSrc"></div>
+    </div>
+    <div class="card">
+      <div class="row" style="justify-content:space-between;margin-bottom:6px">
+        <h2 style="margin:0">Live transcript</h2><span class="small muted" id="interim"></span>
+      </div>
+      <div id="feed"></div>
+      <div class="row" style="margin-top:8px">
+        <input type="text" id="typed" placeholder="Mic not working? Type what you'd say and press Enter">
+      </div>
+    </div>
+  </div>
+  <div class="row" id="controls">
+    <button id="pause">Pause</button>
+    <label class="row small"><input type="checkbox" id="panelOn" checked> Panel can interject</label>
+    <button class="primary" id="finish" style="margin-left:auto">Finish pitch → Q&amp;A</button>
+    <button class="hidden" id="doneAns">Done answering</button>
+    <button class="hidden" id="skipQ">Skip question</button>
+    <button class="hidden" id="endQA">End Q&amp;A and score</button>
+  </div>
+</section>
+
+<!-- ============ SCORING ============ -->
+<section id="scoring" class="hidden"><div class="card"><span class="spin"></span><span id="scoringMsg">The panel is scoring your rehearsal. This takes a minute or two…</span></div></section>
+
+<!-- ============ RESULTS ============ -->
+<section id="results" class="hidden"></section>
+
+</main>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const qs = new URLSearchParams(location.search);
+const SID = qs.get('session');
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+const S = { sid: SID, rid: null, settings: null, slides: [], range: [1, 1], personas: [], phase: 'pre',
+  t0: 0, pausedAt: 0, pausedTotal: 0, paused: false, events: [], asked: [], slide: 1, presenter: 'Presenter',
+  speaking: false, wantListen: false, rec: null, mutedUntil: 0, busy: false, lastHeard: 0, lastFinal: 0,
+  wordsSince: 0, slideStartAt: Date.now(), slideWords: 0, pending: null, replying: false, slideChanged: false, slideChangedAt: 0, lastCheck: 0, voices: [], voiceMap: {}, auto: false,
+  qaWords: 0, qaResolve: null, dirty: false, ticker: null };
+const el = () => S.t0 ? Math.max(0, (Date.now() - S.t0 - S.pausedTotal - (S.paused ? Date.now() - S.pausedAt : 0)) / 1000) : 0;
+const mmss = t => { t = Math.max(0, Math.floor(t)); return String(Math.floor(t / 60)).padStart(2, '0') + ':' + String(t % 60).padStart(2, '0'); };
+async function api(path, opts) {
+  const r = await fetch(path, opts); const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.detail || r.statusText); return j;
+}
+const post = (p, body) => api(p, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+function show(id) { for (const s of ['pre', 'liveWrap', 'scoring', 'results']) $('#' + s).classList.toggle('hidden', s !== id); }
+function setPhase(p, label, live) { S.phase = p; const e = $('#phasePill'); e.textContent = label; e.classList.toggle('live', !!live); }
+
+/* ================= voices (free: the browser's built-in speech synthesis) ================= */
+const FEMALE = /(female|woman|catherine|hayley|natasha|zira|hazel|susan|jenny|aria|libby|sonia|emma|samantha|karen|moira|tessa|olivia|clara|heera|linda|sara|michelle|ava|jane|eva|elsa|fiona|victoria|allison|amy)/i;
+const MALE = /(\bmale\b|james|george|ryan|guy|mark|david|richard|daniel|alex\b|tom\b|oliver|william|liam|thomas|brian|christopher|eric|roger|steffan|ravi|sean|rishi|neil|connor|jacob|henry)/i;
+const ACC = { australian: 'en-AU', british: 'en-GB', american: 'en-US', irish: 'en-IE', indian: 'en-IN', 'new zealand': 'en-NZ', canadian: 'en-CA' };
+function loadVoices() {
+  return new Promise(res => {
+    const get = () => speechSynthesis.getVoices();
+    if (!('speechSynthesis' in window)) return res([]);
+    if (get().length) return res(get());
+    speechSynthesis.onvoiceschanged = () => res(get());
+    setTimeout(() => res(get()), 1500);
+  });
+}
+function gender(v) { return FEMALE.test(v.name) ? 'female' : MALE.test(v.name) ? 'male' : ''; }
+function eligible() {
+  let v = S.voices.filter(x => /^en/i.test(x.lang));
+  const online = $('#online').checked;
+  const nat = v.filter(x => /natural|online/i.test(x.name));
+  const local = v.filter(x => x.localService && !/natural|online/i.test(x.name));
+  if (online && nat.length >= 2) return nat.concat(local);
+  return local.length >= 2 ? local : v;
+}
+function assignVoices() {
+  const pool = eligible(), used = new Set(); S.voiceMap = {};
+  for (const p of S.personas) {
+    const saved = localStorage.getItem('prc_voice_' + p.id);
+    let v = saved && S.voices.find(x => x.voiceURI === saved);
+    if (!v) {
+      const want = (p.voice.gender || '').toLowerCase().startsWith('f') ? 'female' : 'male';
+      const lang = ACC[(p.voice.accent || '').toLowerCase()] || 'en-AU';
+      const scored = pool.map(x => ({ x, s: (gender(x) === want ? 4 : gender(x) ? -4 : 0) + (x.lang.replace('_', '-') === lang ? 3 : x.lang.startsWith('en') ? 1 : 0) + (used.has(x.voiceURI) ? -6 : 0) }));
+      scored.sort((a, b) => b.s - a.s); v = scored[0] && scored[0].x;
+    }
+    if (v) { S.voiceMap[p.id] = v; used.add(v.voiceURI); }
+  }
+}
+function tuning(p) { const age = +p.voice.age || 40; return { pitch: age >= 52 ? 0.88 : age <= 34 ? 1.08 : 1, rate: age >= 58 ? 0.94 : 1.02 }; }
+function speak(p, text) {
+  return new Promise(res => {
+    if (!('speechSynthesis' in window)) return res();
+    const u = new SpeechSynthesisUtterance(text), v = S.voiceMap[p.id], t = tuning(p);
+    if (v) { u.voice = v; u.lang = v.lang; } else u.lang = 'en-AU';
+    u.pitch = t.pitch; u.rate = t.rate;
+    let done = false; const fin = () => { if (!done) { done = true; res(); } };
+    u.onend = fin; u.onerror = fin;
+    setTimeout(fin, 30000 + text.length * 120);   // never hang the session on a stuck voice
+    speechSynthesis.speak(u);
+  });
+}
+function renderVoices() {
+  $('#voices').innerHTML = S.personas.map(p => {
+    const pool = S.voices.filter(x => /^en/i.test(x.lang)), cur = S.voiceMap[p.id];
+    return `<div class="vrow"><div class="row who"><span class="orb" style="--c:${esc(p.colour)}"></span><div><b>${esc(p.name)}</b><div class="small muted">${esc(p.title)}</div></div></div>
+      <select data-p="${esc(p.id)}">${pool.map(v => `<option value="${esc(v.voiceURI)}" ${cur && cur.voiceURI === v.voiceURI ? 'selected' : ''}>${esc(v.name)} (${esc(v.lang)})</option>`).join('') || '<option>No voices found</option>'}</select>
+      <button class="small" data-hear="${esc(p.id)}">Hear</button></div>`;
+  }).join('');
+}
+$('#voices').addEventListener('change', e => { const id = e.target.dataset.p; if (!id) return;
+  const v = S.voices.find(x => x.voiceURI === e.target.value); if (v) { S.voiceMap[id] = v; localStorage.setItem('prc_voice_' + id, v.voiceURI); } });
+$('#voices').addEventListener('click', async e => { const id = e.target.dataset.hear; if (!id) return;
+  const p = S.personas.find(x => x.id === id); await speak(p, `Hi, I'm ${p.name}, ${p.title}. I'll be listening carefully.`); });
+$('#online').onchange = () => { assignVoices(); renderVoices(); };
+
+/* ================= speech recognition (free: the browser's built-in) ================= */
+function startRec() {
+  if (!SR || S.rec || !S.wantListen || S.speaking || S.paused) return;
+  const r = new SR(); r.lang = 'en-AU'; r.continuous = true; r.interimResults = true;
+  r.onresult = e => {
+    let interim = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const res = e.results[i], t = res[0].transcript;
+      if (S.speaking || Date.now() < S.mutedUntil) continue;          // ignore the panel's own voice
+      S.lastHeard = Date.now();
+      if (res.isFinal) { const txt = t.trim(); if (txt) onSpeech(txt); } else interim += t;
+    }
+    $('#interim').textContent = interim ? '… ' + interim.slice(-70) : '';
+  };
+  r.onerror = e => { if (e.error === 'not-allowed' || e.error === 'service-not-allowed') banner('bad', 'The browser blocked the microphone. Click the padlock in the address bar, allow the microphone, and reload.');
+    else if (e.error === 'network') banner('warn', 'Speech recognition lost its connection. Retrying… (you can also type below)'); };
+  r.onend = () => { S.rec = null; $('#interim').textContent = ''; if (S.wantListen && !S.speaking && !S.paused) setTimeout(startRec, 250); };
+  try { r.start(); S.rec = r; } catch (e) { S.rec = null; }
+}
+function stopRec() { const r = S.rec; S.rec = null; if (r) { r.onend = null; try { r.abort(); } catch (e) {} } }
+function banner(kind, msg) { $('#banner').innerHTML = msg ? `<div class="banner ${kind}">${msg}</div>` : ''; }
+
+/* ================= transcript + events ================= */
+function feed(html, cls) { const f = $('#feed'); const d = document.createElement('div'); d.className = 'l ' + (cls || ''); d.innerHTML = `<span class="t">${mmss(el())}</span>` + html; f.appendChild(d); f.scrollTop = f.scrollHeight; }
+function onSpeech(text) {
+  const qa = S.phase === 'qa';
+  S.events.push({ type: 'speech', t: +el().toFixed(1), slide: S.slide, speaker: S.presenter, text, phase: qa ? 'qa' : 'pitch' });
+  S.dirty = true; S.lastFinal = Date.now(); S.lastHeard = Date.now();
+  const wc = text.split(/\s+/).length; if (qa) S.qaWords += wc; else { S.wordsSince += wc; S.slideWords += wc; }
+  feed(`<b>${esc(S.presenter)}:</b> ${esc(text)}`);
+  maybeClarify(text, wc);
+}
+/* The presenter may ask the panel a question back before answering ("do you mean year one or the whole term?").
+   Short replies right after a panel question are checked; a real clarification gets an in-character answer. */
+const CLARIFY_HINT = /\?|^(sorry|so |just to|when you say|do you mean|are you|is that|can you|could you|what do you|which|how do you mean|you mean|by that|um,? (do|are|is|what|which))/i;
+async function maybeClarify(text, wc) {
+  const p = S.pending; if (!p || S.replying || S.paused) return;
+  if (Date.now() - p.at > 45000 || wc > 30 || p.count >= 2 || !CLARIFY_HINT.test(text.trim())) { if (wc > 30 || Date.now() - p.at > 45000) S.pending = null; return; }
+  S.replying = true; S.busy = true; thinking(true);
+  try {
+    const now = el();
+    const r = await post(`/api/sessions/${S.sid}/rehearsals/${S.rid}/reply`, { persona_id: p.pid, question: p.text, said: text, slide: S.slide,
+      recent: S.events.filter(e => e.t >= now - 150) });
+    if (r.clarifying && S.pending === p) { p.count++; thinking(false); await panelSpeaks(r.persona_id, r.text, 'room', S.slide, 'reply'); p.at = Date.now(); }
+    else if (!r.clarifying) { S.pending = null; }
+  } catch (e) { /* ignore: carry on as if it was an answer */ }
+  finally { S.replying = false; S.busy = S.phase === 'qa'; thinking(false); if (S.phase === 'qa') { S.qaWords = 0; S.lastHeard = Date.now(); } }
+}
+function setSlide(n, src) {
+  n = Math.max(1, Math.min(S.slides.length, n)); if (n === S.slide && src !== 'init') return;
+  S.slide = n; const sl = S.slides[n - 1] || {};
+  $('#sNum').textContent = n; $('#sTitle').textContent = sl.title || '';
+  $('#sPace').textContent = (sl.pacing || 'normal') + ' pace'; $('#sPace').className = 'chip pace-' + (sl.pacing || 'normal');
+  $('#sCue').textContent = $('#cue').checked ? (sl.key_message || '') : '';
+  if (S.phase === 'pitch' || src === 'init') {
+    S.events.push({ type: 'slide', t: +el().toFixed(1), slide: n }); S.dirty = true;
+    S.slideStartAt = Date.now(); S.slideWords = 0;
+    if (src !== 'init') { S.slideChanged = true; S.slideChangedAt = Date.now(); feed(`slide ${n}: ${esc(sl.title || '')}`, 's'); }
+  }
+}
+$('#prev').onclick = () => setSlide(S.slide - 1, 'manual');
+$('#next').onclick = () => setSlide(S.slide + 1, 'manual');
+document.addEventListener('keydown', e => { if (S.phase !== 'pitch' || e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+  if (e.key === 'ArrowRight' || e.key === 'PageDown') setSlide(S.slide + 1, 'manual'); if (e.key === 'ArrowLeft' || e.key === 'PageUp') setSlide(S.slide - 1, 'manual'); });
+$('#typed').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.value.trim()) { onSpeech(e.target.value.trim()); e.target.value = ''; } });
+
+async function pollSlide() {
+  try {
+    const j = await api('/api/slide');
+    S.auto = !!j.available;
+    $('#slideSrc').textContent = j.available ? `PowerPoint linked (${j.mode === 'slideshow' ? 'slide show' : 'editing view'}) · slide ${j.slide}${j.total ? ' of ' + j.total : ''}` : 'Manual slides: use the buttons or arrow keys. ' + (j.reason || '');
+    if (j.available && j.total && S.slides.length && j.total !== S.slides.length) $('#slideSrc').textContent += ` · WARNING: PowerPoint has ${j.total} slides but the analysed deck has ${S.slides.length}`;
+    if (j.available && S.phase === 'pitch' && j.slide !== S.slide && j.slide >= 1 && j.slide <= S.slides.length) setSlide(j.slide, 'auto');
+    return j;
+  } catch (e) { return { available: false, reason: e.message }; }
+}
+
+/* ================= panel ================= */
+function members() {
+  $('#members').innerHTML = S.personas.map(p => `<div class="member" id="m_${esc(p.id)}" style="--c:${esc(p.colour)}"><div class="big"></div>
+    <div class="nm">${esc(p.name)}</div><div class="tt">${esc(p.title)}</div>${p.key_decision_maker ? '<div class="kdm">DECISION-MAKER</div>' : ''}</div>`).join('');
+}
+const mem = id => $('#m_' + id);
+function thinking(on) { document.querySelectorAll('.member').forEach(m => m.classList.toggle('thinking', on && !S.speaking)); }
+async function panelSpeaks(pid, text, target, about, kind) {
+  const p = S.personas.find(x => x.id === pid) || S.personas[0];
+  const ev = { type: 'panel', t: +el().toFixed(1), persona_id: p.id, text, target: target || 'room', kind, slide: about || S.slide, dur: 0, phase: S.phase === 'qa' ? 'qa' : 'pitch' };
+  S.events.push(ev); if (kind !== 'reply') S.asked.push({ t: ev.t, persona_id: p.id, text, slide: S.slide, kind }); S.dirty = true;
+  feed(`<span class="p">${esc(p.name)} (${esc(p.title)}):</span> ${esc(text)}`, 'p');
+  stopRec(); S.speaking = true; thinking(false); mem(p.id).classList.add('speaking');
+  const t0 = Date.now(); await speak(p, text);
+  ev.dur = +((Date.now() - t0) / 1000).toFixed(1); mem(p.id).classList.remove('speaking');
+  S.speaking = false; S.mutedUntil = Date.now() + 700; S.lastHeard = Date.now(); S.wordsSince = 0;
+  if (kind === 'live' || kind === 'qa') S.pending = { pid: p.id, text, at: Date.now(), count: 0 };
+  setTimeout(startRec, 400);
+}
+async function checkTurn() {
+  S.busy = true; S.lastCheck = Date.now(); S.wordsSince = 0; S.slideChanged = false; thinking(true);
+  try {
+    const now = el();
+    const r = await post(`/api/sessions/${S.sid}/rehearsals/${S.rid}/turn`, { slide: S.slide, elapsed: now, asked: S.asked,
+      slide_dwell: (Date.now() - S.slideStartAt) / 1000, slide_words: S.slideWords,
+      recent: S.events.filter(e => e.t >= now - 150) });
+    if (r.interject && S.phase === 'pitch' && !S.paused) { thinking(false); await panelSpeaks(r.persona_id, r.text, r.target, r.about_slide, 'live'); }
+  } catch (e) { feed('(panel unavailable: ' + esc(e.message) + ')', 'i'); }
+  finally { S.busy = false; thinking(false); }
+}
+const READY = { quick: [15, 25], normal: [30, 60], weighty: [45, 90] };   // seconds on slide, words spoken on it, before the panel may ask
+function maybeCheck() {
+  if (S.phase !== 'pitch' || S.paused || S.busy || S.speaking || !$('#panelOn').checked) return;
+  if (+S.settings.interjection <= 0) return;
+  const quiet = (Date.now() - S.lastHeard) / 1000;
+  if (quiet < 1.4 || (Date.now() - S.lastCheck) < 10000) return;
+  const sl = S.slides[S.slide - 1] || {}, need = READY[sl.pacing || 'normal'] || READY.normal;
+  const k = S.readyScale || 1, ready = (Date.now() - S.slideStartAt) / 1000 >= need[0] * k && S.slideWords >= need[1] * k;
+  if (ready && S.wordsSince >= 25) checkTurn();
+}
+function tick() {
+  $('#clock').textContent = mmss(el());
+  maybeCheck();
+  if (S.dirty && S.rid && (S.phase === 'pitch' || S.phase === 'qa')) { S.dirty = false;
+    api(`/api/sessions/${S.sid}/rehearsals/${S.rid}/log`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ events: S.events }) }).catch(() => { S.dirty = true; }); }
+}
+
+/* ================= pause / finish / Q&A ================= */
+$('#pause').onclick = () => {
+  S.paused = !S.paused;
+  if (S.paused) { S.pausedAt = Date.now(); stopRec(); speechSynthesis.cancel(); $('#pause').textContent = 'Resume'; setPhase(S.phase, 'Paused'); }
+  else { S.pausedTotal += Date.now() - S.pausedAt; $('#pause').textContent = 'Pause'; setPhase(S.phase, S.phase === 'qa' ? 'Q&A' : 'Live', true); S.lastHeard = Date.now(); startRec(); }
+};
+$('#finish').onclick = async () => {
+  if (S.phase !== 'pitch') return;
+  S.phase = 'qa'; S.busy = true; setPhase('qa', 'Q&A', true); thinking(true);
+  $('#finish').classList.add('hidden'); $('#pause').classList.add('hidden'); $('#panelOn').parentElement.classList.add('hidden');
+  banner('info', '<span class="spin"></span>The panel is conferring on its questions…');
+  try {
+    const { questions } = await post(`/api/sessions/${S.sid}/rehearsals/${S.rid}/qa`, { events: S.events });
+    banner('info', 'Question time. Answer out loud; press <b>Done answering</b> (or pause for a few seconds) to move on.');
+    $('#doneAns').classList.remove('hidden'); $('#skipQ').classList.remove('hidden'); $('#endQA').classList.remove('hidden');
+    thinking(false);
+    for (let i = 0; i < questions.length && S.phase === 'qa'; i++) {
+      const q = questions[i]; banner('info', `Question ${i + 1} of ${questions.length}. Answer out loud, then press <b>Done answering</b>.`);
+      await panelSpeaks(q.persona_id, q.text, 'room', q.about_slide, 'qa');
+      await listenForAnswer();
+    }
+  } catch (e) { banner('bad', 'Could not get the Q&A questions: ' + esc(e.message) + ' You can still score what you have.'); $('#endQA').classList.remove('hidden'); }
+  finally { thinking(false); S.busy = false; }
+  if (S.phase === 'qa') await finishAndScore();
+};
+function listenForAnswer() {
+  return new Promise(res => {
+    S.qaWords = 0; S.lastHeard = Date.now(); const start = Date.now();
+    const iv = setInterval(() => { if (S.phase !== 'qa') return finish();
+      if (S.replying || S.speaking) return;
+      const quiet = (Date.now() - S.lastHeard) / 1000;
+      if ((S.qaWords >= 8 && quiet >= 4.5) || Date.now() - start > 150000) finish(); }, 500);
+    function finish() { clearInterval(iv); S.qaResolve = null; res(); }
+    S.qaResolve = finish;
+  });
+}
+$('#doneAns').onclick = () => S.qaResolve && S.qaResolve();
+$('#skipQ').onclick = () => S.qaResolve && S.qaResolve();
+$('#endQA').onclick = () => { S.phase = 'qa-end'; S.qaResolve && S.qaResolve(); speechSynthesis.cancel(); finishAndScore(); };
+let scoring = false;
+async function finishAndScore() {
+  if (scoring) return; scoring = true;
+  S.wantListen = false; stopRec(); speechSynthesis.cancel(); clearInterval(S.ticker);
+  setPhase('scoring', 'Scoring'); show('scoring');
+  try {
+    const sc = await post(`/api/sessions/${S.sid}/rehearsals/${S.rid}/score`, { events: S.events });
+    renderResults(sc, S.rid, S.slides);
+  } catch (e) {
+    $('#scoring').innerHTML = `<div class="card"><div class="banner bad">Scoring failed: ${esc(e.message)}</div><p class="muted small">Your transcript is saved. Try again, or open it from the pre-read page.</p><button class="primary" onclick="location.reload()">Reload</button></div>`;
+  }
+}
+
+/* ================= results ================= */
+const bar = v => `<div class="bar"><i style="width:${Math.max(0, Math.min(100, v))}%"></i></div>`;
+function renderResults(sc, rid, slides) {
+  setPhase('done', 'Results'); $('#clock').classList.add('hidden'); show('results');
+  const w = sc.win_likelihood;
+  $('#results').innerHTML = `
+  <div class="card"><div class="row" style="justify-content:space-between"><h2 style="font-size:18px;margin:0">Rehearsal results</h2>
+    <div class="row"><a class="btn" href="/api/sessions/${S.sid}/rehearsals/${rid}/export.docx">Download report (.docx)</a>
+    <a class="btn" href="/rehearse?session=${S.sid}">Rehearse again</a><a class="btn" href="/">Back to pre-read</a></div></div>
+    <div class="scores">
+      <div class="score"><b>${sc.brief_coverage.score}</b><span>Brief coverage</span></div>
+      <div class="score"><b>${sc.gut_feel.score}</b><span>Gut feel</span></div>
+      <div class="score"><b>${sc.total}</b><span>Total (coverage + gut)</span></div>
+      <div class="score"><b>${sc.question_handling.score}</b><span>Question handling</span></div>
+      <div class="score"><b>${sc.delivery_score == null ? 'n/a' : sc.delivery_score}</b><span>${sc.delivery_score == null ? 'Delivery (no timestamps)' : 'Delivery'}</span></div></div>
+    <h2>Win likelihood</h2>
+    <div class="row" style="gap:30px"><div style="flex:1;min-width:220px"><div class="small muted">Panel's independent read</div><b style="font-size:26px">${w.panel_read_pct}%</b>${bar(w.panel_read_pct)}</div>
+    <div style="flex:1;min-width:220px"><div class="small muted">Calculated from the scores</div><b style="font-size:26px">${w.calculated_pct}%</b>${bar(w.calculated_pct)}
+    <div class="small muted">${sc.delivery_score == null ? '0.41 coverage + 0.35 gut + 0.24 questions (no delivery score without timestamps)' : '0.35 coverage + 0.30 gut + 0.20 questions + 0.15 delivery'}</div></div></div>
+    <p>${esc(w.panel_rationale)}</p></div>
+  <div class="card"><h2>Top actions</h2><ol>${sc.top_actions.map(a => `<li>${esc(a)}</li>`).join('')}</ol></div>
+  <div class="card"><h2>Brief coverage</h2><p class="muted small">${esc(sc.brief_coverage.summary)}</p><div class="tw"><table><thead><tr><th>Req</th><th>Met?</th><th>Evidence from your pitch</th><th>Note</th></tr></thead><tbody>
+    ${sc.brief_coverage.items.map(i => `<tr><td>${esc(i.req_id)}</td><td><span class="badge b-${esc(i.met)}">${esc(i.met)}</span></td><td>${esc(i.evidence)}</td><td>${esc(i.note)}</td></tr>`).join('')}</tbody></table></div></div>
+  <div class="card"><h2>Gut feel</h2><p>${esc(sc.gut_feel.rationale)}</p></div>
+  <div class="card"><h2>Question handling</h2><div class="tw"><table><thead><tr><th>Asked by</th><th>Question</th><th>How you answered</th><th>Rating</th><th>Note</th></tr></thead><tbody>
+    ${sc.question_handling.items.map(i => `<tr><td>${esc(i.asker)}</td><td>${esc(i.question)}</td><td>${esc(i.answer_summary)}</td><td>${i.rating}</td><td>${esc(i.note)}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">No questions were asked.</td></tr>'}</tbody></table></div></div>
+  <div class="card"><h2>${sc.delivery_score == null ? 'Slide-by-slide content' : 'Slide-by-slide delivery'}</h2><p class="muted small">${sc.delivery_score == null ? 'Judged on what was said about each slide. Timing is not assessed because the recording has no timestamps.' : "Judged against each slide's intended pace: a deliberately quick slide isn't marked down for brevity."}</p><div class="tw"><table><thead><tr><th>#</th><th>Slide</th><th>Intended</th><th>${sc.delivery_score == null ? '' : 'Time'}</th><th>Words</th><th>Verdict</th><th>Rating</th><th>Note</th></tr></thead><tbody>
+    ${sc.slides.map(s => `<tr><td>${s.n}</td><td>${esc(s.title)}</td><td class="pace-${esc(s.pacing)}">${esc(s.pacing)}</td><td>${s.seconds == null ? '' : mmss(s.seconds)}</td><td>${s.words}</td><td><span class="badge b-${esc(s.verdict)}">${esc(s.verdict)}</span></td><td>${s.rating}</td><td>${esc(s.note)}</td></tr>`).join('')}</tbody></table></div></div>
+  ${sc.presenters.length ? `<div class="card"><h2>Per presenter</h2>${sc.presenters.map(p => `<h3 style="font-size:14px;margin:12px 0 4px">${esc(p.name)} <span class="muted small">slides ${esc(p.slides || '–')}</span></h3>
+    <ul>${p.strengths.map(x => `<li>Strength: ${esc(x)}</li>`).join('')}${p.improve.map(x => `<li>Improve: ${esc(x)}</li>`).join('')}</ul>`).join('')}</div>` : ''}`;
+  window.scrollTo(0, 0);
+}
+
+/* ================= start ================= */
+async function start() {
+  const btn = $('#start'); btn.disabled = true; $('#startMsg').innerHTML = '<span class="spin"></span>Starting…';
+  try {
+    S.presenter = $('#presenter').value.trim() || 'Presenter';
+    const startSlide = +$('#startSlide').value;
+    members(); show('liveWrap'); $('#clock').classList.remove('hidden');
+    S.t0 = Date.now(); S.phase = 'pitch'; setPhase('pitch', 'Live', true);
+    $('#sOf').textContent = 'of ' + S.slides.length; S.slide = 0; setSlide(startSlide, 'init');
+    S.wantListen = true; S.lastHeard = Date.now(); S.lastCheck = Date.now(); startRec();
+    S.ticker = setInterval(tick, 1000); setInterval(pollSlide, 900);
+    if (!SR) banner('warn', 'This browser has no speech recognition (use Chrome or Edge). You can type what you would say in the box below.');
+    $('#cue').onchange = () => { $('#sCue').textContent = $('#cue').checked ? ((S.slides[S.slide - 1] || {}).key_message || '') : ''; };
+  } catch (e) { $('#startMsg').textContent = e.message; btn.disabled = false; }
+}
+
+async function boot() {
+  if (!SID) { $('#pre').innerHTML = '<div class="card">No session selected. <a href="/">Go back to the pre-read</a>.</div>'; return; }
+  // view mode: show an earlier rehearsal's results
+  if (qs.get('view')) {
+    const r = await api(`/api/sessions/${SID}/rehearsals/${qs.get('view')}`); const s = await api(`/api/sessions/${SID}`);
+    show('results'); S.slides = s.slides; if (!r.score) { $('#results').innerHTML = '<div class="card">This rehearsal was not scored.</div>'; return; }
+    renderResults(r.score, r.id, s.slides);
+    if (r.past) $('#results').insertAdjacentHTML('afterbegin', `<div class="banner info">Real pitch assessed from a transcript${r.past.outcome ? ' · actual outcome: <b>' + esc(r.past.outcome) + '</b>' : ''}.
+      The "panel" in this report is the real client. ${r.past.timing_estimated ? 'The recording had no timestamps, so timing and delivery are not scored.' : ''}</div>`);
+    return;
+  }
+  try {
+    const j = await post(`/api/sessions/${SID}/rehearsals`);
+    S.rid = j.rid; S.readyScale = j.ready_scale || 1; S.settings = j.settings; S.slides = j.slides; S.range = j.range; S.personas = j.settings.personas || [];
+  } catch (e) { $('#pre').innerHTML = `<div class="card"><div class="banner bad">${esc(e.message)}</div><a href="/">Back</a></div>`; return; }
+  $('#pitchName').textContent = (S.settings.title || 'Untitled pitch') + ` · ${S.slides.length} slides · panel of ${S.personas.length}`;
+  $('#lvl').textContent = S.settings.interjection;
+  $('#presenter').value = (S.settings.presenters && S.settings.presenters[0] && S.settings.presenters[0].name) || 'Presenter';
+  $('#startSlide').innerHTML = S.slides.map(s => `<option value="${s.n}" ${s.n === S.range[0] ? 'selected' : ''}>${s.n}. ${esc(s.title.slice(0, 50))}</option>`).join('');
+  S.voices = await loadVoices(); assignVoices(); renderVoices();
+  const slide = await pollSlide();
+  const checks = [
+    [SR ? 'ok' : 'bad', SR ? 'Speech recognition is available in this browser.' : 'No speech recognition here. Use Chrome or Edge on your laptop. (You can still type your answers.)'],
+    [S.voices.length ? 'ok' : 'bad', S.voices.length ? `${S.voices.filter(v => /^en/i.test(v.lang)).length} English voices found for the panel.` : 'No voices found, so the panel will be silent.'],
+    [slide.available ? 'ok' : 'warn', slide.available ? `PowerPoint is linked (${slide.mode}), currently on slide ${slide.slide}.` : 'PowerPoint slide detection is off, so you will move slides yourself with the buttons or arrow keys. ' + esc(slide.reason || '')],
+  ];
+  $('#checks').innerHTML = checks.map(c => `<div class="chk"><span class="dot ${c[0]}"></span><div>${c[1]}</div></div>`).join('');
+  setPhase('pre', 'Ready');
+}
+$('#micTest').onclick = () => {
+  if (!SR) { $('#micOut').textContent = 'No speech recognition in this browser.'; return; }
+  const r = new SR(); r.lang = 'en-AU'; r.interimResults = true; $('#micOut').textContent = 'Listening for 8 seconds… say something.';
+  r.onresult = e => { $('#micOut').textContent = '“' + [...e.results].map(x => x[0].transcript).join(' ') + '”'; };
+  r.onerror = e => { $('#micOut').textContent = 'Microphone problem: ' + e.error + (e.error === 'not-allowed' ? ' (allow the microphone in the address bar)' : ''); };
+  r.start(); setTimeout(() => { try { r.stop(); } catch (e) {} }, 8000);
+};
+$('#start').onclick = start;
+boot();
+</script>
+</body>
+</html>

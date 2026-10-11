@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pitch review</title>
+<style>
+:root{
+  --bg:#f6f5f2; --panel:#ffffff; --ink:#1d1d1b; --muted:#6b6a66; --line:#e2e0da;
+  --accent:#8a1c2b; --accent-ink:#ffffff; --ok:#2e7d4f; --warn:#b7791f; --bad:#b3261e; --info:#2a5db0;
+  --chip:#eeece6; --shadow:0 1px 2px rgba(0,0,0,.06);
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#16161a; --panel:#1f1f25; --ink:#ecebe7; --muted:#a09f99; --line:#33333b;
+    --accent:#d0566a; --accent-ink:#16161a; --ok:#59b57f; --warn:#e0a94a; --bad:#ef7b73; --info:#7aa7ee; --chip:#2a2a32; --shadow:none; }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{display:flex;align-items:center;gap:16px;padding:14px 24px;border-bottom:1px solid var(--line);background:var(--panel)}
+header h1{font-size:17px;margin:0;font-weight:650}
+header a{margin-left:auto;font-size:13px}
+main{max-width:1180px;margin:0 auto;padding:24px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px;margin-bottom:18px;box-shadow:var(--shadow)}
+.card h2{font-size:16px;margin:0 0 8px;font-weight:650}
+.btn{font:inherit;cursor:pointer;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:8px 14px;display:inline-block;text-decoration:none}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600}
+.stats{display:flex;gap:12px;flex-wrap:wrap;margin:14px 0}
+.stat{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 14px;min-width:120px}
+.stat b{display:block;font-size:22px}.stat span{font-size:12px;color:var(--muted)}
+.tw{overflow-x:auto}
+table{width:100%;min-width:760px;border-collapse:collapse;font-size:14px}
+th{text-align:left;font-size:12px;color:var(--muted);font-weight:600;padding:6px 8px;border-bottom:1px solid var(--line)}
+td{padding:10px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+.badge{display:inline-block;padding:2px 9px;border-radius:99px;font-size:12px;font-weight:600;white-space:nowrap}
+.b-good{background:color-mix(in srgb,var(--ok) 16%,transparent);color:var(--ok)}
+.b-mid{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
+.b-bad{background:color-mix(in srgb,var(--bad) 15%,transparent);color:var(--bad)}
+.b-na{background:var(--chip);color:var(--muted)}
+.chip{display:inline-block;background:var(--chip);border-radius:6px;padding:0 6px;margin:1px 2px 1px 0;font-size:12px}
+.muted{color:var(--muted)}.small{font-size:13px}
+.ev{font-style:italic;margin-top:4px}
+.banner{padding:12px 14px;border-radius:8px;margin-bottom:14px;font-size:14px}
+.banner.info{background:color-mix(in srgb,var(--info) 12%,transparent);color:var(--info)}
+.banner.bad{background:color-mix(in srgb,var(--bad) 14%,transparent);color:var(--bad)}
+.themes{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(min(300px,100%),1fr))}
+.theme{border:1px solid var(--line);border-radius:10px;padding:12px 14px;background:var(--bg)}
+tr.th td{background:var(--bg);border-top:2px solid var(--line)}
+select{font:inherit;padding:4px 8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+@media (max-width:700px){main{padding:14px}header{padding:12px 14px}}
+</style>
+</head>
+<body>
+<header><h1>Pitch review</h1><a href="/">Back to start</a></header>
+<main id="main"><div class="card muted">Loading…</div></main>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const qs = new URLSearchParams(location.search), SID = qs.get('session'), RID = qs.get('rid');
+const VERDICT = { covered: ['Covered', 'good'], partly: ['Partly covered', 'mid'], deck_only: ['On slides only', 'mid'], conversation_only: ['Said, not on slides', 'mid'], gap: ['Gap', 'bad'] };
+const STRENGTH = { strong: 'good', partial: 'mid', thin: 'mid', none: 'bad' };
+const CONV = { delivered: ['Delivered', 'good'], partial: ['Partly', 'mid'], not_discussed: ['Not discussed', 'bad'] };
+const ANS = { yes: ['Answered', 'good'], partly: ['Partly', 'mid'], deferred: ['Deferred', 'mid'], no: ['Not answered', 'bad'] };
+const badge = (t, k) => `<span class="badge b-${k}">${esc(t)}</span>`;
+
+async function boot() {
+  try {
+    const r = await (await fetch(`/api/sessions/${SID}/rehearsals/${RID}`)).json();
+    const s = await (await fetch(`/api/sessions/${SID}`)).json();
+    if (!r.review) { $('#main').innerHTML = '<div class="card">This pitch has not been reviewed yet. <a href="/">Back</a></div>'; return; }
+    render(r, s);
+  } catch (e) { $('#main').innerHTML = `<div class="card"><div class="banner bad">${esc(e.message)}</div></div>`; }
+}
+let DATA = null, FILT = { pri: 'all', hideContract: false };
+function render(r, s) {
+  DATA = { r, s }; draw();
+}
+function draw() {
+  const { r, s } = DATA;
+  const v = r.review, c = v.counts, pa = r.past || {}, bp = c.by_priority;
+  const slideLink = n => n ? `<span class="chip">slide ${n}</span>` : '';
+  const THEME = { strong: ['Strong', 'good'], mixed: ['Mixed', 'mid'], weak: ['Weak', 'bad'] };
+  const byId = Object.fromEntries(v.requirements.map(q => [q.req_id, q]));
+  const keep = q => (FILT.pri === 'all' || q.priority.toLowerCase() === FILT.pri) && !(FILT.hideContract && q.relevance === 'contract');
+  const row = q => `<tr><td><b>${esc(q.req_id)}</b></td>
+      <td>${esc(q.text)}<div class="muted small">${esc(q.priority)}${q.category ? ' · ' + esc(q.category) : ''}${q.relevance === 'contract' ? ' · <span class="chip">contract / onboarding detail</span>' : ''}</div></td>
+      <td>${badge(q.deck.strength, STRENGTH[q.deck.strength])} ${q.deck.slides.map(slideLink).join('')}<div class="small">${esc(q.deck.note)}</div></td>
+      <td>${badge(...CONV[q.conversation.status])}${q.conversation.evidence ? `<div class="ev small">“${esc(q.conversation.evidence)}”${q.conversation.speaker ? ' · ' + esc(q.conversation.speaker) : ''}</div>` : ''}<div class="small">${esc(q.conversation.note)}</div></td>
+      <td>${badge(...VERDICT[q.verdict])}</td><td class="small">${esc(q.recommendation)}</td></tr>`;
+  const themeRows = v.themes.map(t => {
+    const rs = t.req_ids.map(i => byId[i]).filter(keep);
+    if (!rs.length) return '';
+    return `<tr class="th"><td colspan="6"><b>${esc(t.name)}</b> ${badge(...THEME[t.status])} <span class="muted small">${t.counts.covered} covered · ${t.counts.partly + t.counts.deck_only + t.counts.conversation_only} partly / one side · ${t.counts.gap} gaps</span></td></tr>` + rs.map(row).join('');
+  }).join('');
+  $('#main').innerHTML = `
+  <div class="card">
+    <div class="row" style="justify-content:space-between"><div><h2 style="font-size:20px;margin:0">${esc(s.settings.title || 'Pitch')}</h2>
+      <div class="muted small">Review of the pitch as delivered${pa.outcome ? ' · outcome: <b>' + esc(pa.outcome) + '</b>' : ''}${pa.timing_estimated ? ' · timing not assessed (no timestamps)' : ''}</div></div>
+      <div class="row"><a class="btn primary" href="/api/sessions/${SID}/rehearsals/${RID}/review.docx">Download report (.docx)</a>
+      <a class="btn" href="/?open=${SID}">Deck pre-read</a></div></div>
+    <div class="stats">
+      <div class="stat"><b>${c.conv_addressed} / ${c.requirements}</b><span>Addressed in the conversation (${c.conv_delivered} fully)</span></div>
+      <div class="stat"><b>${c.deck_supported} / ${c.requirements}</b><span>Supported by the deck (${c.deck_strong} strongly)</span></div>
+      <div class="stat"><b>${c.covered} / ${c.requirements}</b><span>Covered by both deck and conversation</span></div>
+      <div class="stat"><b>${bp.must.covered} / ${bp.must.total}</b><span>Must-haves covered (${bp.must.conv_addressed} addressed in conversation)</span></div>
+      <div class="stat"><b>${bp.should.covered} / ${bp.should.total}</b><span>Should-haves covered (${bp.should.conv_addressed} addressed in conversation)</span></div>
+      <div class="stat"><b>${c.pitch_gaps}</b><span>Pitch-level gaps (+${c.contract_gaps} contract detail)</span></div>
+      <div class="stat"><b>${c.q_yes} / ${c.questions}</b><span>Client questions answered</span></div></div>
+    <p>${esc(v.summary)}</p>
+    ${v.biggest_gaps.length ? `<h3 style="font-size:14px;margin:14px 0 4px">Biggest gaps</h3><ul>${v.biggest_gaps.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
+    ${v.next_steps.length ? `<h3 style="font-size:14px;margin:14px 0 4px">Next steps</h3><ol>${v.next_steps.map(x => `<li>${esc(x)}</li>`).join('')}</ol>` : ''}
+  </div>
+  <div class="card"><h2>By theme</h2>
+    <p class="muted small" style="margin-top:0">"Covered" means the deck supports it at least partly and the conversation delivered it. Gaps on contract-level detail are not a failing of the pitch.</p>
+    <div class="themes">${v.themes.map(t => `<div class="theme"><div class="row" style="justify-content:space-between"><b>${esc(t.name)}</b>${badge(...THEME[t.status])}</div>
+      <div class="muted small">${t.counts.total} requirement${t.counts.total === 1 ? '' : 's'} · ${t.counts.conv_addressed} addressed in conversation · ${t.counts.deck_supported} supported by deck · ${t.counts.gap} gaps</div>
+      ${t.summary ? `<div class="small" style="margin-top:6px">${esc(t.summary)}</div>` : ''}</div>`).join('')}</div></div>
+  <div class="card"><h2>Requirements: deck and conversation</h2>
+    <p class="muted small" style="margin-top:0">What the client asked for, how the slides support it, and how the conversation actually delivered it.</p>
+    <div class="row" style="margin-bottom:10px"><label class="small">Show <select id="fPri"><option value="all">all requirements</option><option value="must">must-haves only</option><option value="should">should-haves only</option></select></label>
+      <label class="small"><input type="checkbox" id="fCon"> hide contract / onboarding detail</label></div>
+    <div class="tw"><table><thead><tr><th>Req</th><th style="width:20%">What the client asked for</th><th style="width:20%">How the deck supports it</th><th style="width:28%">How the conversation delivered it</th><th>Verdict</th><th style="width:16%">Recommendation</th></tr></thead><tbody>
+    ${themeRows || '<tr><td colspan="6" class="muted">Nothing matches this filter.</td></tr>'}</tbody></table></div></div>
+  <div class="card"><h2>Client questions and remarks</h2>
+    ${v.client_questions.length ? `<div class="tw"><table><thead><tr><th>#</th><th>Asked by</th><th style="width:28%">What the client said</th><th>Relates to</th><th>Answered?</th><th style="width:26%">How it was answered</th><th style="width:18%">Note / follow-up</th></tr></thead><tbody>
+    ${v.client_questions.map((q, i) => `<tr><td>${i + 1}</td><td>${esc(q.asker)}</td>
+      <td><span class="chip">${esc(q.kind)}</span> ${esc(q.question)}</td>
+      <td>${slideLink(q.slide)}${q.req_id ? `<span class="chip">${esc(q.req_id)}</span>` : ''}</td>
+      <td>${badge(...ANS[q.answered])}${q.quality !== 'n/a' ? `<div class="muted small">${esc(q.quality)}</div>` : ''}</td>
+      <td class="small">${esc(q.answer_summary)}</td>
+      <td class="small">${esc(q.note)}${q.follow_up ? `<div><b>Follow-up owed:</b> ${esc(q.follow_up)}</div>` : ''}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">No client questions or remarks were found in the transcript.</p>'}
+  </div>
+  ${v.commitments.length ? `<div class="card"><h2>Commitments and follow-ups owed</h2><ul>${v.commitments.map(x => `<li>${esc(x.what)}${x.who ? ' · <b>' + esc(x.who) + '</b>' : ''}${x.due ? ' · by ' + esc(x.due) : ''}</li>`).join('')}</ul></div>` : ''}`;
+  $('#fPri').value = FILT.pri; $('#fCon').checked = FILT.hideContract;
+  $('#fPri').onchange = e => { FILT.pri = e.target.value; draw(); };
+  $('#fCon').onchange = e => { FILT.hideContract = e.target.checked; draw(); };
+}
+boot();
+</script>
+</body>
+</html>

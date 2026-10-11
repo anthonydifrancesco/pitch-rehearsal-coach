@@ -1,0 +1,23 @@
+# Render blueprint: connect this repo in Render (New > Blueprint) and it reads this file.
+# You are asked for APP_PASSWORD and ANTHROPIC_API_KEY once; they are stored on Render, never in GitHub.
+services:
+  - type: web
+    name: pitch-rehearsal-coach
+    runtime: python
+    plan: starter            # needed for the disk below; the free plan sleeps and wipes saved sessions
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /healthz
+    disk:
+      name: coach-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.3
+      - key: DATA_DIR
+        value: /var/data
+      - key: APP_PASSWORD
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false

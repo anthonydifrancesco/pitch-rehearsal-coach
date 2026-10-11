@@ -1,0 +1,510 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pitch Rehearsal Coach</title>
+<style>
+:root{
+  --bg:#f6f5f2; --panel:#ffffff; --ink:#1d1d1b; --muted:#6b6a66; --line:#e2e0da;
+  --accent:#8a1c2b; --accent-ink:#ffffff; --ok:#2e7d4f; --warn:#b7791f; --bad:#b3261e; --info:#2a5db0;
+  --chip:#eeece6; --shadow:0 1px 2px rgba(0,0,0,.06);
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#16161a; --panel:#1f1f25; --ink:#ecebe7; --muted:#a09f99; --line:#33333b;
+    --accent:#d0566a; --accent-ink:#16161a; --ok:#59b57f; --warn:#e0a94a; --bad:#ef7b73; --info:#7aa7ee; --chip:#2a2a32; --shadow:none; }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{display:flex;align-items:center;gap:16px;padding:14px 24px;border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0;z-index:5}
+header h1{font-size:17px;margin:0;font-weight:650;letter-spacing:.2px}
+header .steps{display:flex;gap:6px;margin-left:auto;font-size:13px;color:var(--muted)}
+.step{padding:3px 10px;border-radius:99px;background:var(--chip)}
+.step.on{background:var(--accent);color:var(--accent-ink)}
+main{max-width:1180px;margin:0 auto;padding:24px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px;margin-bottom:18px;box-shadow:var(--shadow)}
+.card h2{font-size:15px;margin:0 0 4px;font-weight:650}
+.card p.hint{margin:0 0 14px;color:var(--muted);font-size:13px}
+.grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(min(240px,100%),1fr))}
+label{display:block;font-size:13px;color:var(--muted);margin-bottom:4px}
+input[type=text],input[type=number],textarea,select{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font:inherit}
+textarea{min-height:110px;resize:vertical}
+input[type=range]{width:100%;accent-color:var(--accent)}
+.rv{float:right;color:var(--ink);font-weight:600}
+button{font:inherit;cursor:pointer;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:8px 14px}
+button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600;padding:11px 20px}
+button.small{padding:4px 10px;font-size:13px}
+.btn{font:inherit;cursor:pointer;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:8px 14px;display:inline-block}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600}
+button:disabled{opacity:.5;cursor:default}
+.file{border:1px dashed var(--line);border-radius:8px;padding:12px;background:var(--bg)}
+.persona{border:1px solid var(--line);border-radius:10px;padding:14px;background:var(--bg)}
+.persona.off{opacity:.5}
+.persona .top{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.orb{width:26px;height:26px;border-radius:50%;box-shadow:0 0 12px var(--c);background:radial-gradient(circle at 35% 30%,#fff9,var(--c) 60%)}
+.persona .nm{font-weight:650}.persona .tt{font-size:12px;color:var(--muted)}
+.persona details{margin-top:8px;font-size:13px}
+.row{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+.row input{width:auto;flex:1;min-width:0}.row input.n{flex:0 0 72px}.row button{flex:0 0 auto}
+.banner{padding:12px 14px;border-radius:8px;margin-bottom:14px;font-size:14px}
+.banner.bad{background:color-mix(in srgb,var(--bad) 14%,transparent);color:var(--bad)}
+.banner.info{background:color-mix(in srgb,var(--info) 12%,transparent);color:var(--info)}
+.stats{display:flex;gap:12px;flex-wrap:wrap;margin:14px 0}
+.stat{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 14px;min-width:120px}
+.stat b{display:block;font-size:22px}.stat span{font-size:12px;color:var(--muted)}
+.tabs{display:flex;gap:4px;overflow-x:auto;border-bottom:1px solid var(--line);margin-bottom:14px}
+.tab{white-space:nowrap;padding:9px 14px;border:none;border-bottom:2px solid transparent;border-radius:0;background:none;color:var(--muted)}
+.tab.on{color:var(--ink);border-bottom-color:var(--accent);font-weight:600}
+#pane{overflow-x:auto}
+table{width:100%;min-width:640px;border-collapse:collapse;font-size:14px}
+th{text-align:left;font-size:12px;color:var(--muted);font-weight:600;padding:6px 8px;border-bottom:1px solid var(--line)}
+td{padding:10px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+tr.clickable{cursor:pointer}tr.clickable:hover td{background:var(--bg)}
+.badge{display:inline-block;padding:2px 9px;border-radius:99px;font-size:12px;font-weight:600;white-space:nowrap}
+.b-strong,.b-covered{background:color-mix(in srgb,var(--ok) 16%,transparent);color:var(--ok)}
+.b-ok{background:var(--chip);color:var(--muted)}
+.b-thin{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
+.b-none,.b-unanswered{background:color-mix(in srgb,var(--bad) 15%,transparent);color:var(--bad)}
+.b-ignored{background:var(--chip);color:var(--muted);text-decoration:line-through}
+.chip{display:inline-block;background:var(--chip);border-radius:6px;padding:0 6px;margin:1px 2px 1px 0;font-size:12px}
+.detail td{background:var(--bg)}
+.q{margin:4px 0}.q .who{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-right:6px}
+.muted{color:var(--muted)}.small{font-size:13px}
+.pace-quick{color:var(--info)}.pace-weighty{color:var(--accent);font-weight:650}
+.spin{display:inline-block;width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:s 1s linear infinite;vertical-align:-2px;margin-right:8px}
+@keyframes s{to{transform:rotate(360deg)}}
+.hidden{display:none}
+.mode{display:block;border:1px solid var(--line);border-radius:10px;padding:12px 14px;cursor:pointer;background:var(--bg);color:var(--ink);font-size:15px}
+.mode span{display:block;margin-left:24px}
+.mode:has(input:checked){border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.mode input{width:auto;margin-right:6px}
+@media (max-width:700px){main{padding:14px}header{padding:12px 14px}td,th{padding:8px 4px}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Pitch Rehearsal Coach</h1>
+  <div class="steps"><span class="step on" id="st1">1 Setup</span><span class="step" id="st2">2 Pre-read</span><span class="step">3 Rehearse</span></div>
+</header>
+<main>
+
+<!-- ============ SETUP ============ -->
+<section id="setup">
+  <div id="keyBanner" class="banner bad hidden">No API key found. Copy <b>.env.example</b> to <b>.env</b>, paste your Anthropic key, and restart the server. You can still fill in the form.</div>
+  <div class="banner info"><b>Heads up:</b> the RFP, deck and any transcript are sent to Anthropic's API to be analysed. Use client material only once IT / the NDA allows it.</div>
+
+  <div class="card">
+    <h2>What do you want to do?</h2>
+    <div class="grid" style="margin-top:10px">
+      <label class="mode"><input type="radio" name="mode" value="rehearse" checked> <b>Rehearse a pitch</b><span class="small muted">Present out loud to an AI client panel, with questions and scoring.</span></label>
+      <label class="mode"><input type="radio" name="mode" value="review"> <b>Review a pitch that has happened</b><span class="small muted">Add the transcript. You get a written report: each requirement against the deck and the conversation, plus the client's questions.</span></label>
+      <label class="mode"><input type="radio" name="mode" value="pack"> <b>Rehearse from a Pitch Pack</b><span class="small muted">Load an analysis file made by the pitch analysis tool. No pre-read is run here, so no analysis cost: you go straight to the panel.</span></label>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>The pitch</h2>
+    <p class="hint">Title is usually the client and the opportunity.</p>
+    <div class="grid">
+      <div><label>Pitch title</label><input type="text" id="title" placeholder="AEG Cooking Demonstration Program 2027"></div>
+      <div><label>Channel / industry</label>
+        <select id="channel">
+          <option>Consumer electronics</option><option>Appliances / home</option><option>Pharmacy</option>
+          <option>Liquor</option><option>Independent grocery</option><option>Grocery</option><option>Hardware</option><option>Other</option>
+        </select></div>
+      <div><label>Expected length (minutes)</label><input type="number" id="minutes" value="45" min="5" max="240"></div>
+    </div>
+  </div>
+
+  <div class="card mode-pack hidden">
+    <h2>Pitch Pack</h2>
+    <p class="hint">The <b>.pitchpack.json</b> file exported by the pitch analysis tool (or from a session here). It carries the requirements, slide map, pacing, gaps and likely questions.</p>
+    <div class="grid">
+      <div class="file"><label>Pitch Pack file</label><input type="file" id="packFile" accept=".json,.pitchpack.json"></div>
+      <div class="file"><label>Deck (optional)</label><input type="file" id="packDeck" accept=".pptx">
+        <div class="small muted">Only used to warn you if the deck has changed since the analysis.</div></div>
+    </div>
+  </div>
+
+  <div class="card mode-new">
+    <h2>RFP / tender scope</h2>
+    <p class="hint">Paste it, upload it, or both. PDF, DOCX or TXT.</p>
+    <div class="grid">
+      <div class="file"><label>Upload</label><input type="file" id="rfpFile" accept=".pdf,.docx,.txt,.md"></div>
+      <div><label>…or paste text</label><textarea id="rfpText" placeholder="Paste the brief here"></textarea></div>
+    </div>
+  </div>
+
+  <div class="card mode-new">
+    <h2>Pitch deck</h2>
+    <p class="hint">PowerPoint (.pptx). Speaker notes are used to infer pacing and who presents which slide. Charts and images are not read yet.</p>
+    <div class="file"><input type="file" id="deckFile" accept=".pptx"></div>
+  </div>
+
+  <div class="card mode-review hidden">
+    <h2>Transcript of the pitch</h2>
+    <p class="hint">From Granola or any recorder. Speaker names and timestamps help but are not required. Without timestamps, timing is simply not assessed.</p>
+    <div class="grid">
+      <div class="file"><label>Upload (.txt, .md, .docx, .vtt, .srt)</label><input type="file" id="trFile" accept=".txt,.md,.docx,.vtt,.srt"></div>
+      <div><label>…or paste the transcript</label><textarea id="trText" placeholder="Paste the whole meeting transcript here"></textarea></div>
+      <div><label>Who was on your side? (optional)</label><input type="text" id="trSide" placeholder="e.g. Anthony, Julie. Helps when speaker labels are poor.">
+        <label style="margin-top:10px">What happened? (optional)</label>
+        <select id="trOutcome"><option value="">Not known yet</option><option>Won</option><option>Lost</option><option>Shortlisted / next round</option><option>Still waiting</option></select></div>
+      <div><label>Notes for the reviewer (optional)</label><textarea id="trNotes" style="min-height:70px" placeholder="e.g. Recorded on my laptop in the room, so client voices may be unlabelled."></textarea></div>
+    </div>
+  </div>
+
+  <div class="card mode-new">
+    <h2>How should it assess?</h2>
+    <div class="grid">
+      <div><label>Topics to leave out of scope</label>
+        <input type="text" id="ignore" value="pricing, rates, invoicing">
+        <div class="small muted">Not counted as gaps or asked about.</div></div>
+      <div><label>How should the AI assess? (optional)</label>
+        <textarea id="guidance" style="min-height:70px" placeholder="e.g. Be strict on evidence. Treat a claim without a number as thin. Care most about the people and compliance requirements."></textarea>
+        <div class="small muted">Used for the pre-read, the panel, the scoring and the review.</div></div>
+    </div>
+  </div>
+
+  <div class="card mode-rehearse">
+    <h2>How the panel behaves</h2>
+    <div class="grid">
+      <div><label>Interjections <span class="rv" id="interjV">5</span></label>
+        <input type="range" id="interj" min="0" max="10" value="5">
+        <div class="small muted">0 = hold everything to the end · 5 = medium · 10 = heavy</div></div>
+      <div><label>Difficulty <span class="rv" id="diffV">3 · Firm</span></label>
+        <input type="range" id="diff" min="1" max="5" value="3">
+        <div class="small muted">1 gentle · 5 brutal</div></div>
+    </div>
+  </div>
+
+  <div class="card mode-rehearse">
+    <h2>Panel personas</h2>
+    <p class="hint">Pick who is in the room. Questions slider sets how much each one asks. Flag the key decision-makers.</p>
+    <div class="grid" id="personas"></div>
+  </div>
+
+  <div class="card mode-rehearse">
+    <h2>Which slides, and who presents</h2>
+    <p class="hint">Leave the range blank to rehearse the whole deck. Presenters can be filled in now or from the pre-read.</p>
+    <div class="grid">
+      <div><label>Rehearse slides from / to</label>
+        <div class="row"><input type="number" class="n" id="rFrom" min="1" placeholder="1"><span>to</span><input type="number" class="n" id="rTo" min="1" placeholder="end"></div></div>
+      <div><label>Presenters (name, from, to)</label><div id="presenters"></div>
+        <button class="small" id="addPres" type="button">+ Add presenter</button></div>
+    </div>
+  </div>
+
+  <button class="primary" id="go">Create session and run pre-read</button>
+  <span id="goMsg" class="muted" style="margin-left:12px"></span>
+  <div id="pastWrap" class="card hidden" style="margin-top:24px"><h2>Past sessions</h2><div id="past"></div></div>
+</section>
+
+<!-- ============ PRE-READ ============ -->
+<section id="results" class="hidden">
+  <div class="card">
+    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+      <div><h2 id="rTitle" style="font-size:18px"></h2><div class="muted small" id="rMeta"></div></div>
+      <div class="row" style="margin-left:auto;gap:8px;display:flex;flex-wrap:wrap">
+        <a class="btn" id="exportBtn" href="#" style="text-decoration:none">Export report (.docx)</a>
+        <a class="btn" id="packBtn" href="#" style="text-decoration:none" title="Analysis as a file the other tool can load. Includes your rehearsal scores.">Export Pitch Pack</a>
+        <a class="btn primary" id="rehBtn" href="#" style="text-decoration:none">Start rehearsal →</a>
+        <button class="small" id="back">← New session</button>
+      </div>
+    </div>
+    <details style="margin-top:12px"><summary class="small" style="cursor:pointer">Assessment guidance and re-run</summary>
+      <p class="small muted" style="margin:8px 0">Tell the AI how to assess this pitch, then re-run the pre-read to see the difference.</p>
+      <textarea id="guidance2" style="min-height:70px"></textarea>
+      <div style="margin-top:8px"><button class="small" id="rerun">Save and re-run pre-read</button> <span id="rerunMsg" class="small muted"></span></div>
+    </details>
+    <div id="pastReh" class="small" style="margin-top:12px"></div>
+    <p id="summary" style="margin:12px 0 0"></p>
+    <div class="stats" id="stats"></div>
+  </div>
+  <div class="card">
+    <div class="tabs" id="tabs">
+      <button class="tab on" data-t="map">Slide map</button>
+      <button class="tab" data-t="reqs">Requirements</button>
+      <button class="tab" data-t="qs">Likely questions</button>
+      <button class="tab" data-t="issues">Gaps &amp; inconsistencies</button>
+    </div>
+    <div id="pane"></div>
+  </div>
+</section>
+
+</main>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const DIFF = ['', 'Gentle', 'Fair', 'Firm', 'Tough', 'Brutal'];
+const PERSONA_LABEL = {finance:'Finance', operations:'Operations', skeptic:'Skeptic', insights:'Insights', channel_expert:'Channel expert'};
+let personas = [], sess = null, tab = 'map';
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.detail || r.statusText);
+  return j;
+}
+
+/* ---------- setup ---------- */
+function renderPersonas() {
+  $('#personas').innerHTML = personas.map((p, i) => `
+    <div class="persona ${p.include === false ? 'off' : ''}" data-i="${i}">
+      <div class="top"><span class="orb" style="--c:${esc(p.colour)}"></span>
+        <div style="flex:1"><div class="nm">${esc(p.name)}</div><div class="tt">${esc(p.title)}</div></div>
+        <input type="checkbox" data-f="include" ${p.include === false ? '' : 'checked'} title="Include in this pitch"></div>
+      <label>Questions <span class="rv">${p.questions}</span></label>
+      <input type="range" min="0" max="10" value="${p.questions}" data-f="questions">
+      <label style="display:flex;gap:6px;align-items:center;margin-top:8px"><input type="checkbox" data-f="key_decision_maker" ${p.key_decision_maker ? 'checked' : ''}> Key decision-maker</label>
+      <details><summary>Voice &amp; style</summary>
+        <div class="row" style="margin-top:8px"><input type="number" class="n" data-f="age" value="${p.voice.age}" title="Age">
+          <input type="text" data-f="gender" value="${esc(p.voice.gender)}" title="Gender">
+          <input type="text" data-f="accent" value="${esc(p.voice.accent)}" title="Accent"></div>
+        <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" data-f="locked" ${p.voice.locked ? 'checked' : ''}> Lock this voice</label>
+        <label style="margin-top:8px">How they behave</label><textarea data-f="style" style="min-height:70px">${esc(p.style)}</textarea>
+      </details>
+    </div>`).join('');
+}
+$('#personas').addEventListener('input', e => {
+  const card = e.target.closest('.persona'); if (!card) return;
+  const p = personas[+card.dataset.i], f = e.target.dataset.f, t = e.target;
+  const v = t.type === 'checkbox' ? t.checked : t.value;
+  if (f === 'include') { p.include = v; card.classList.toggle('off', !v); }
+  else if (f === 'questions') { p.questions = +v; t.previousElementSibling.querySelector('.rv').textContent = v; }
+  else if (f === 'key_decision_maker') p.key_decision_maker = v;
+  else if (f === 'age') p.voice.age = +v;
+  else if (['gender', 'accent'].includes(f)) p.voice[f] = v;
+  else if (f === 'locked') p.voice.locked = v;
+  else if (f === 'style') p.style = v;
+});
+function addPresenter(name = '', from = '', to = '') {
+  const d = document.createElement('div'); d.className = 'row';
+  d.innerHTML = `<input type="text" placeholder="Name" value="${esc(name)}"><input type="number" class="n" min="1" placeholder="from" value="${esc(from)}"><input type="number" class="n" min="1" placeholder="to" value="${esc(to)}"><button class="small" type="button">✕</button>`;
+  d.querySelector('button').onclick = () => d.remove();
+  $('#presenters').appendChild(d);
+}
+$('#addPres').onclick = () => addPresenter();
+$('#interj').oninput = e => $('#interjV').textContent = e.target.value;
+$('#diff').oninput = e => $('#diffV').textContent = `${e.target.value} · ${DIFF[e.target.value]}`;
+
+function mode() { return document.querySelector('input[name=mode]:checked').value; }
+function applyMode() {
+  const m = mode();
+  document.querySelectorAll('.mode-review').forEach(e => e.classList.toggle('hidden', m !== 'review'));
+  document.querySelectorAll('.mode-rehearse').forEach(e => e.classList.toggle('hidden', m === 'review'));
+  document.querySelectorAll('.mode-pack').forEach(e => e.classList.toggle('hidden', m !== 'pack'));
+  document.querySelectorAll('.mode-new').forEach(e => e.classList.toggle('hidden', m === 'pack'));
+  $('#go').textContent = m === 'review' ? 'Review this pitch' : m === 'pack' ? 'Import pack and open' : 'Create session and run pre-read';
+}
+document.querySelectorAll('input[name=mode]').forEach(r => r.onchange = applyMode);
+
+function collectSettings() {
+  const num = s => { const v = $(s).value; return v === '' ? null : +v; };
+  return {
+    mode: mode(), title: $('#title').value.trim(), channel: $('#channel').value, minutes: num('#minutes'),
+    interjection: +$('#interj').value, difficulty: +$('#diff').value, ignore_topics: $('#ignore').value.trim(), guidance: $('#guidance').value.trim(),
+    range: mode() === 'review' ? {from: null, to: null} : {from: num('#rFrom'), to: num('#rTo')},
+    personas: personas.filter(p => p.include !== false),
+    presenters: [...$('#presenters').children].map(r => {
+      const i = r.querySelectorAll('input'); return {name: i[0].value.trim(), from: i[1].value ? +i[1].value : null, to: i[2].value ? +i[2].value : null};
+    }).filter(p => p.name),
+  };
+}
+
+async function importPack() {
+  const msg = $('#goMsg'), btn = $('#go'), pf = $('#packFile').files[0];
+  if (!pf) return msg.textContent = 'Choose the Pitch Pack file first.';
+  btn.disabled = true;
+  try {
+    msg.innerHTML = '<span class="spin"></span>Reading the Pitch Pack…';
+    const cfg = collectSettings(); delete cfg.ignore_topics; delete cfg.guidance; delete cfg.channel;   // these come from the pack
+    const fd = new FormData();
+    fd.append('pack', pf); fd.append('settings', JSON.stringify(cfg));
+    if ($('#packDeck').files[0]) fd.append('deck', $('#packDeck').files[0]);
+    const made = await api('/api/packs/import', {method: 'POST', body: fd});
+    if (made.warnings.length && !confirm('Check before you rehearse:\n\n' + made.warnings.join('\n\n') + '\n\nOpen it anyway?')) { msg.textContent = ''; return; }
+    await openSession(made.id);
+    msg.textContent = '';
+  } catch (e) {
+    msg.innerHTML = `<span style="color:var(--bad)">${esc(e.message)}</span>`;
+  } finally { btn.disabled = false; }
+}
+
+$('#go').onclick = async () => {
+  if (mode() === 'pack') return importPack();
+  const msg = $('#goMsg'), btn = $('#go');
+  const deck = $('#deckFile').files[0];
+  if (!deck) return msg.textContent = 'Attach the deck first.';
+  if (!$('#rfpFile').files[0] && !$('#rfpText').value.trim()) return msg.textContent = 'Add the RFP (paste or upload).';
+  const review = mode() === 'review', tfile = $('#trFile').files[0], ttext = $('#trText').value.trim();
+  if (review && !tfile && !ttext) return msg.textContent = 'Add the transcript (upload or paste).';
+  btn.disabled = true;
+  try {
+    msg.innerHTML = '<span class="spin"></span>Uploading and reading files…';
+    const fd = new FormData();
+    fd.append('settings', JSON.stringify(collectSettings()));
+    fd.append('deck', deck);
+    if ($('#rfpFile').files[0]) fd.append('rfp_file', $('#rfpFile').files[0]);
+    fd.append('rfp_text', $('#rfpText').value);
+    const made = await api('/api/sessions', {method: 'POST', body: fd});
+    msg.innerHTML = `<span class="spin"></span>Read ${made.slide_count} slides. The pre-read takes a minute or two…`;
+    await api(`/api/sessions/${made.id}/preread`, {method: 'POST'});
+    if (review) {
+      msg.innerHTML = '<span class="spin"></span>Matching the transcript to your slides (about a minute)…';
+      const t = new FormData();
+      if (tfile) t.append('transcript_file', tfile);
+      t.append('transcript_text', ttext); t.append('our_side', $('#trSide').value); t.append('outcome', $('#trOutcome').value); t.append('notes', $('#trNotes').value);
+      const a = await api(`/api/sessions/${made.id}/assess`, {method: 'POST', body: t});
+      msg.innerHTML = '<span class="spin"></span>Writing the review: requirements, deck, conversation and client questions (1–2 minutes)…';
+      await api(`/api/sessions/${made.id}/rehearsals/${a.rid}/review`, {method: 'POST'});
+      location.href = `/review?session=${made.id}&rid=${a.rid}`;
+      return;
+    }
+    await openSession(made.id);
+    msg.textContent = '';
+  } catch (e) {
+    msg.innerHTML = `<span style="color:var(--bad)">${esc(e.message)}</span>`;
+  } finally { btn.disabled = false; }
+};
+
+/* ---------- results ---------- */
+function show(which) {
+  $('#setup').classList.toggle('hidden', which !== 'setup');
+  $('#results').classList.toggle('hidden', which !== 'results');
+  $('#st1').classList.toggle('on', which === 'setup'); $('#st2').classList.toggle('on', which === 'results');
+}
+async function openSession(id) {
+  sess = await api(`/api/sessions/${id}`);
+  if (!sess.preread) { alert('This session has no pre-read yet.'); return; }
+  show('results'); render();
+}
+function reqStatus(r) {
+  const pr = sess.preread;
+  if (r.ignored) return 'ignored';
+  const cov = pr.slides.filter(s => s.covers.includes(r.id));
+  if (!cov.length) return 'unanswered';
+  return cov.every(s => ['thin', 'none'].includes(s.evidence_strength)) ? 'thin' : 'covered';
+}
+function pacingOf(s) { return sess.pacing_overrides[s.n] || s.pacing; }
+async function loadPastReh() {
+  const list = await api(`/api/sessions/${sess.id}/rehearsals`).catch(() => []);
+  $('#pastReh').innerHTML = list.length ? '<b>Past rehearsals and reviews:</b> ' + list.map(r => `<a href="${r.review ? '/review?session=' + sess.id + '&rid=' + r.id : '/rehearse?session=' + sess.id + '&view=' + r.id}">${r.review ? 'Pitch review · ' : r.past ? 'Real pitch · ' : ''}${esc(r.started)}${r.outcome ? ' · ' + esc(r.outcome) : ''}${r.review ? '' : r.total != null ? ' · total ' + r.total : ' · not scored'}</a>`).join(' · ') : '';
+}
+function render() {
+  const pr = sess.preread, st = sess.settings;
+  $('#exportBtn').href = `/api/sessions/${sess.id}/export.docx`;
+  $('#packBtn').href = `/api/sessions/${sess.id}/pack.json?results=1`;
+  $('#rehBtn').href = `/rehearse?session=${sess.id}`;
+  if (document.activeElement !== $('#guidance2')) $('#guidance2').value = st.guidance || '';
+  loadPastReh();
+  $('#rTitle').textContent = st.title || 'Untitled pitch';
+  $('#rMeta').textContent = `${pr.slides.length} slides · ${pr.requirements.length} requirements · ${pr.meta?.model || ''}` +
+    (pr.meta?.input_tokens ? ` · ${pr.meta.input_tokens.toLocaleString()} in / ${pr.meta.output_tokens.toLocaleString()} out tokens` : '');
+  $('#summary').textContent = pr.deck_summary;
+  const statuses = pr.requirements.map(reqStatus);
+  const cnt = k => statuses.filter(x => x === k).length;
+  $('#stats').innerHTML = [
+    ['Requirements covered', cnt('covered')], ['Thin evidence', cnt('thin')], ['Unanswered', cnt('unanswered')],
+    ['Inconsistencies', pr.inconsistencies.length], ['Likely questions', pr.slides.reduce((a, s) => a + s.likely_questions.length, 0)],
+  ].map(([l, v]) => `<div class="stat"><b>${v}</b><span>${l}</span></div>`).join('');
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('on', t.dataset.t === tab));
+  $('#pane').innerHTML = {map: paneMap, reqs: paneReqs, qs: paneQs, issues: paneIssues}[tab]();
+}
+const badge = (k, t) => `<span class="badge b-${k}">${esc(t || k)}</span>`;
+const slideTitle = n => esc(sess.slides[n - 1]?.title || '');
+
+function paneMap() {
+  const pr = sess.preread;
+  const pres = (pr.slides.some(s => s.presenter_hint)) ? `<p class="small muted">Presenters inferred from speaker notes: <button class="small" onclick="applyPresenters()">Use these in session settings</button></p>` : '';
+  return pres + `<table><thead><tr><th>#</th><th>Slide</th><th>Purpose and key message</th><th>Pacing</th><th>Evidence</th><th>Covers</th></tr></thead><tbody>` +
+    pr.slides.map(s => {
+      const p = pacingOf(s), ov = !!sess.pacing_overrides[s.n];
+      return `<tr class="clickable" onclick="toggle(${s.n})"><td>${s.n}</td>
+        <td><b>${slideTitle(s.n)}</b>${s.presenter_hint ? `<div class="small muted">${esc(s.presenter_hint)}</div>` : ''}</td>
+        <td>${esc(s.purpose)}<div class="small muted">${esc(s.key_message)}</div></td>
+        <td onclick="event.stopPropagation()"><select onchange="setPacing(${s.n},this.value)">
+          ${['quick', 'normal', 'weighty'].map(o => `<option value="${o}" ${o === p ? 'selected' : ''}>${o}</option>`).join('')}</select>
+          <div class="small muted">${ov ? 'overridden' : esc(s.pacing_reason)}</div></td>
+        <td>${badge(s.evidence_strength)}</td>
+        <td>${s.covers.map(c => `<span class="chip">${esc(c)}</span>`).join('')}</td></tr>
+        <tr class="detail hidden" id="d${s.n}"><td></td><td colspan="5">
+          <div class="small"><b>Evidence:</b> ${esc(s.evidence_note) || '–'}</div>
+          ${s.likely_questions.map(q => `<div class="q"><span class="who">${PERSONA_LABEL[q.persona_hint]}</span>${esc(q.question)}</div>`).join('') || '<div class="small muted">No likely questions.</div>'}
+        </td></tr>`;
+    }).join('') + '</tbody></table>';
+}
+function paneReqs() {
+  const pr = sess.preread;
+  return `<table><thead><tr><th>ID</th><th>Requirement</th><th>Priority</th><th>Category</th><th>Status</th><th>Slides</th></tr></thead><tbody>` +
+    pr.requirements.map(r => {
+      const k = reqStatus(r), slides = pr.slides.filter(s => s.covers.includes(r.id)).map(s => s.n);
+      return `<tr><td>${esc(r.id)}</td><td>${esc(r.text)}</td><td>${esc(r.priority)}</td><td class="muted">${esc(r.category)}</td>
+        <td>${badge(k, k === 'ignored' ? 'out of scope' : k)}</td><td>${slides.map(n => `<span class="chip">${n}</span>`).join('') || '–'}</td></tr>`;
+    }).join('') + '</tbody></table>';
+}
+function paneQs() {
+  const pr = sess.preread, by = {};
+  pr.slides.forEach(s => s.likely_questions.forEach(q => (by[q.persona_hint] ||= []).push({n: s.n, q: q.question})));
+  return Object.keys(PERSONA_LABEL).filter(k => by[k]).map(k =>
+    `<h3 style="font-size:14px;margin:16px 0 6px">${PERSONA_LABEL[k]} <span class="muted small">(${by[k].length})</span></h3>` +
+    by[k].map(x => `<div class="q"><span class="chip">slide ${x.n}</span>${esc(x.q)}</div>`).join('')).join('') || '<p class="muted">No questions generated.</p>';
+}
+function paneIssues() {
+  const pr = sess.preread, reqs = Object.fromEntries(pr.requirements.map(r => [r.id, r]));
+  return `<h3 style="font-size:14px;margin:0 0 6px">Unanswered or only touched on</h3>` +
+    (pr.unanswered_requirements.map(u => `<div class="q">${badge('unanswered', u.req_id)} ${esc(reqs[u.req_id]?.text || '')}<div class="small muted">${esc(u.note)}</div></div>`).join('') || '<p class="muted small">None.</p>') +
+    `<h3 style="font-size:14px;margin:18px 0 6px">Inconsistencies</h3>` +
+    (pr.inconsistencies.map(i => `<div class="q">${i.slides.map(n => `<span class="chip">slide ${n}</span>`).join('')}${esc(i.description)}</div>`).join('') || '<p class="muted small">None found.</p>');
+}
+function toggle(n) { $('#d' + n).classList.toggle('hidden'); }
+async function setPacing(n, v) {
+  const s = sess.preread.slides[n - 1];
+  sess.pacing_overrides = await api(`/api/sessions/${sess.id}/pacing`, {method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({[n]: v === s.pacing ? null : v})});
+  render();
+}
+async function applyPresenters() {
+  const out = [];
+  sess.preread.slides.forEach(s => {
+    const name = (s.presenter_hint || '').trim(); if (!name) return;
+    const last = out[out.length - 1];
+    if (last && last.name === name && last.to === s.n - 1) last.to = s.n; else out.push({name, from: s.n, to: s.n});
+  });
+  sess.settings.presenters = out;
+  await api(`/api/sessions/${sess.id}/settings`, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(sess.settings)});
+  alert('Presenters saved: ' + out.map(p => `${p.name} ${p.from}–${p.to}`).join(', '));
+}
+$('#tabs').onclick = e => { const t = e.target.closest('.tab'); if (t) { tab = t.dataset.t; render(); } };
+$('#back').onclick = () => { show('setup'); loadPast(); };
+
+$('#rerun').onclick = async () => {
+  const msg = $('#rerunMsg'), btn = $('#rerun'); btn.disabled = true;
+  try {
+    sess.settings.guidance = $('#guidance2').value.trim();
+    await api(`/api/sessions/${sess.id}/settings`, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(sess.settings)});
+    msg.innerHTML = '<span class="spin"></span>Re-running the pre-read (a minute or two)…';
+    await api(`/api/sessions/${sess.id}/preread`, {method: 'POST'});
+    await openSession(sess.id); msg.textContent = 'Updated.';
+  } catch (e) { msg.innerHTML = `<span style="color:var(--bad)">${esc(e.message)}</span>`; }
+  finally { btn.disabled = false; }
+};
+
+/* ---------- boot ---------- */
+async function loadPast() {
+  const list = await api('/api/sessions').catch(() => []);
+  $('#pastWrap').classList.toggle('hidden', !list.length);
+  $('#past').innerHTML = list.map(s => `<div class="row"><span style="flex:1">${esc(s.title || 'Untitled')} <span class="muted small">· ${s.mode === 'review' ? 'review · ' : ''}${esc(s.created)} · ${s.slides} slides</span></span>
+    ${s.has_preread ? `<button class="small" onclick="openSession('${s.id}')">Open</button>` : '<span class="muted small">no pre-read</span>'}</div>`).join('');
+}
+(async () => {
+  const c = await api('/api/config');
+  personas = c.personas.map(p => ({...p}));
+  renderPersonas(); addPresenter(); applyMode();
+  $('#keyBanner').classList.toggle('hidden', c.has_key);
+  loadPast();
+  const open = new URLSearchParams(location.search).get('open');
+  if (open) openSession(open).catch(() => {});
+})();
+</script>
+</body>
+</html>
