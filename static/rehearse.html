@@ -77,6 +77,7 @@ td{padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:top}
 .b-no,.b-skipped{background:color-mix(in srgb,var(--bad) 15%,transparent);color:var(--bad)}
 #typed{flex:1;min-width:0}
 </style>
+<link rel="icon" href="data:,"><link rel="stylesheet" href="/static/theme.css">
 </head>
 <body>
 <header>
@@ -121,31 +122,42 @@ td{padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:top}
 <!-- ============ LIVE (pitch + Q&A) ============ -->
 <section id="liveWrap" class="hidden">
   <div id="banner"></div>
-  <div class="card"><div class="panel" id="members"></div></div>
-  <div class="grid2">
-    <div class="card slidecard">
-      <div class="of">Slide</div><div class="num" id="sNum">1</div><div class="of" id="sOf"></div>
-      <div class="ttl" id="sTitle"></div>
-      <div class="small"><span id="sPace" class="chip"></span></div>
-      <div class="small muted" id="sCue" style="margin-top:8px"></div>
-      <div class="row" style="justify-content:center;margin-top:14px">
-        <button class="small" id="prev">◀ Back</button><button class="small" id="next">Next ▶</button>
-      </div>
-      <div class="small muted" style="margin-top:8px" id="slideSrc"></div>
+  <div class="stage">
+    <div class="focus" id="focus">
+      <div class="tag" id="fTag">Panel</div>
+      <div class="status"><span class="mic" id="micDot"></span><span id="micTxt">Mic</span></div>
+      <canvas class="bigorb" id="bigOrb" data-orb="#45d4ff"></canvas>
+      <div class="who" id="fWho">The panel<small id="fSub">Listening to you</small></div>
+      <div class="captions idle" id="captions">Start speaking. The panel is listening.</div>
+      <div class="ring" id="members"></div>
     </div>
-    <div class="card">
-      <div class="row" style="justify-content:space-between;margin-bottom:6px">
-        <h2 style="margin:0">Live transcript</h2><span class="small muted" id="interim"></span>
+    <div class="side">
+      <div class="card slidecard">
+        <div class="of">Slide <span class="num" id="sNum">1</span> <span id="sOf"></span></div>
+        <div class="ttl" id="sTitle"></div>
+        <div class="small"><span id="sPace" class="chip"></span></div>
+        <div class="small muted" id="sCue" style="margin-top:8px"></div>
+        <div class="deckstrip" id="deckStrip"></div>
+        <div class="row" style="margin-top:14px">
+          <button class="small" id="prev">◀ Back</button><button class="small" id="next">Next ▶</button>
+        </div>
+        <div class="small muted" style="margin-top:8px" id="slideSrc"></div>
       </div>
-      <div id="feed"></div>
-      <div class="row" style="margin-top:8px">
-        <input type="text" id="typed" placeholder="Mic not working? Type what you'd say and press Enter">
+      <div class="card">
+        <div class="row" style="justify-content:space-between;margin-bottom:6px">
+          <h2 style="margin:0">Live transcript</h2><span class="small muted" id="interim"></span>
+        </div>
+        <div id="feed"></div>
+        <div class="row" style="margin-top:8px">
+          <input type="text" id="typed" placeholder="Mic not working? Type what you'd say and press Enter">
+        </div>
       </div>
     </div>
   </div>
-  <div class="row" id="controls">
+  <div class="controlbar" id="controls">
     <button id="pause">Pause</button>
     <label class="row small"><input type="checkbox" id="panelOn" checked> Panel can interject</label>
+    <label class="live-int" id="liveIntWrap">Interjection <input type="range" id="liveInt" min="0" max="10" step="1"><b id="liveIntV"></b></label>
     <button class="primary" id="finish" style="margin-left:auto">Finish pitch → Q&amp;A</button>
     <button class="hidden" id="doneAns">Done answering</button>
     <button class="hidden" id="skipQ">Skip question</button>
@@ -275,6 +287,7 @@ function onSpeech(text) {
   S.dirty = true; S.lastFinal = Date.now(); S.lastHeard = Date.now();
   const wc = text.split(/\s+/).length; if (qa) S.qaWords += wc; else { S.wordsSince += wc; S.slideWords += wc; }
   feed(`<b>${esc(S.presenter)}:</b> ${esc(text)}`);
+  if (!S.speaking) caption(`<span class="you">${esc(S.presenter)}</span>${esc(text.length > 220 ? '…' + text.slice(-220) : text)}`);
   maybeClarify(text, wc);
 }
 /* The presenter may ask the panel a question back before answering ("do you mean year one or the whole term?").
@@ -296,7 +309,7 @@ async function maybeClarify(text, wc) {
 function setSlide(n, src) {
   n = Math.max(1, Math.min(S.slides.length, n)); if (n === S.slide && src !== 'init') return;
   S.slide = n; const sl = S.slides[n - 1] || {};
-  $('#sNum').textContent = n; $('#sTitle').textContent = sl.title || '';
+  $('#sNum').textContent = n; renderStrip(); $('#sTitle').textContent = sl.title || '';
   $('#sPace').textContent = (sl.pacing || 'normal') + ' pace'; $('#sPace').className = 'chip pace-' + (sl.pacing || 'normal');
   $('#sCue').textContent = $('#cue').checked ? (sl.key_message || '') : '';
   if (S.phase === 'pitch' || src === 'init') {
@@ -326,19 +339,36 @@ async function pollSlide() {
 function members() {
   $('#members').innerHTML = S.personas.map(p => `<div class="member" id="m_${esc(p.id)}" style="--c:${esc(p.colour)}"><canvas class="big" data-orb="${esc(p.colour)}"></canvas>
     <div class="nm">${esc(p.name)}</div><div class="tt">${esc(p.title)}</div>${p.key_decision_maker ? '<div class="kdm">DECISION-MAKER</div>' : ''}</div>`).join('');
-  PitchOrb.attachAll($('#members'));
+  PitchOrb.attachAll($('#liveWrap'));
 }
+const BIG = () => $('#bigOrb');
+function focusOn(p, state) {
+  const f = $('#focus'); f.classList.toggle('speaking', state === 'speaking'); f.classList.toggle('thinking', state === 'thinking');
+  const col = p ? p.colour : '#45d4ff';
+  PitchOrb.recolour(BIG(), col); f.style.setProperty('--fc', col);
+  $('#fWho').firstChild.nodeValue = p ? p.name : 'The panel';
+  $('#fSub').textContent = p ? p.title : (state === 'thinking' ? 'Conferring' : (S.phase === 'qa' ? 'Waiting for your answer' : 'Listening to you'));
+}
+function caption(html, idle) { const c = $('#captions'); c.className = 'captions' + (idle ? ' idle' : ''); c.innerHTML = html; }
+function renderStrip() {
+  $('#deckStrip').innerHTML = S.slides.map(x => `<i class="${x.n < S.slide ? 'done' : x.n === S.slide ? 'now' : ''}" title="${esc(x.n + '. ' + (x.title || ''))}"></i>`).join('');
+}
+function micUi() {
+  const on = window.__orbListening(); $('#micDot').classList.toggle('on', on);
+  $('#micTxt').textContent = !SR ? 'Typing only' : S.paused ? 'Paused' : S.speaking ? 'Panel speaking' : on ? 'Listening' : 'Mic starting';
+}
+setInterval(() => { if (S.phase === 'pitch' || S.phase === 'qa') micUi(); }, 500);
 window.__orbListening = () => S.phase !== 'done' && !!S.rec && !S.speaking && !S.paused;
 const mem = id => $('#m_' + id);
-function thinking(on) { document.querySelectorAll('.member').forEach(m => m.classList.toggle('thinking', on && !S.speaking)); }
+function thinking(on) { document.querySelectorAll('.member').forEach(m => m.classList.toggle('thinking', on && !S.speaking)); if (!S.speaking) focusOn(null, on ? 'thinking' : 'idle'); if (on && !S.speaking) caption('The panel is considering…', true); }
 async function panelSpeaks(pid, text, target, about, kind) {
   const p = S.personas.find(x => x.id === pid) || S.personas[0];
   const ev = { type: 'panel', t: +el().toFixed(1), persona_id: p.id, text, target: target || 'room', kind, slide: about || S.slide, dur: 0, phase: S.phase === 'qa' ? 'qa' : 'pitch' };
   S.events.push(ev); if (kind !== 'reply') S.asked.push({ t: ev.t, persona_id: p.id, text, slide: S.slide, kind }); S.dirty = true;
   feed(`<span class="p">${esc(p.name)} (${esc(p.title)}):</span> ${esc(text)}`, 'p');
-  stopRec(); S.speaking = true; thinking(false); mem(p.id).classList.add('speaking');
+  stopRec(); S.speaking = true; thinking(false); mem(p.id).classList.add('speaking'); focusOn(p, 'speaking'); caption(esc(text));
   const t0 = Date.now(); await speak(p, text);
-  ev.dur = +((Date.now() - t0) / 1000).toFixed(1); mem(p.id).classList.remove('speaking');
+  ev.dur = +((Date.now() - t0) / 1000).toFixed(1); mem(p.id).classList.remove('speaking'); focusOn(null, 'idle'); caption(S.phase === 'qa' ? 'Your answer…' : 'Carry on when ready.', true);
   S.speaking = false; S.mutedUntil = Date.now() + 700; S.lastHeard = Date.now(); S.wordsSince = 0;
   if (kind === 'live' || kind === 'qa') S.pending = { pid: p.id, text, at: Date.now(), count: 0 };
   setTimeout(startRec, 400);
@@ -347,7 +377,7 @@ async function checkTurn() {
   S.busy = true; S.lastCheck = Date.now(); S.wordsSince = 0; S.slideChanged = false; thinking(true);
   try {
     const now = el();
-    const r = await post(`/api/sessions/${S.sid}/rehearsals/${S.rid}/turn`, { slide: S.slide, elapsed: now, asked: S.asked,
+    const r = await post(`/api/sessions/${S.sid}/rehearsals/${S.rid}/turn`, { interjection: +$('#liveInt').value, slide: S.slide, elapsed: now, asked: S.asked,
       slide_dwell: (Date.now() - S.slideStartAt) / 1000, slide_words: S.slideWords,
       recent: S.events.filter(e => e.t >= now - 150) });
     if (r.interject && S.phase === 'pitch' && !S.paused) { thinking(false); await panelSpeaks(r.persona_id, r.text, r.target, r.about_slide, 'live'); }
@@ -357,7 +387,7 @@ async function checkTurn() {
 const READY = { quick: [15, 25], normal: [30, 60], weighty: [45, 90] };   // seconds on slide, words spoken on it, before the panel may ask
 function maybeCheck() {
   if (S.phase !== 'pitch' || S.paused || S.busy || S.speaking || !$('#panelOn').checked) return;
-  if (+S.settings.interjection <= 0) return;
+  if (+$('#liveInt').value <= 0) return;
   const quiet = (Date.now() - S.lastHeard) / 1000;
   if (quiet < 1.4 || (Date.now() - S.lastCheck) < 10000) return;
   const sl = S.slides[S.slide - 1] || {}, need = READY[sl.pacing || 'normal'] || READY.normal;
@@ -380,7 +410,7 @@ $('#pause').onclick = () => {
 $('#finish').onclick = async () => {
   if (S.phase !== 'pitch') return;
   S.phase = 'qa'; S.busy = true; setPhase('qa', 'Q&A', true); thinking(true);
-  $('#finish').classList.add('hidden'); $('#pause').classList.add('hidden'); $('#panelOn').parentElement.classList.add('hidden');
+  $('#finish').classList.add('hidden'); $('#pause').classList.add('hidden'); $('#panelOn').parentElement.classList.add('hidden'); $('#liveIntWrap').classList.add('hidden');
   banner('info', '<span class="spin"></span>The panel is conferring on its questions…');
   try {
     const { questions } = await post(`/api/sessions/${S.sid}/rehearsals/${S.rid}/qa`, { events: S.events });
@@ -424,6 +454,10 @@ async function finishAndScore() {
 }
 
 /* ================= results ================= */
+const dial = (v, label) => {
+  const n = v == null ? null : Math.max(0, Math.min(100, +v)), col = n == null ? 'var(--line2)' : n >= 70 ? 'var(--ok)' : n >= 50 ? 'var(--warn)' : 'var(--bad)', C = 2 * Math.PI * 46;
+  return `<div class="dial" style="--c:${col}"><svg viewBox="0 0 110 110"><circle class="trk" cx="55" cy="55" r="46"/><circle class="val" cx="55" cy="55" r="46" data-len="${n == null ? 0 : (n / 100 * C).toFixed(1)}" data-c="${C.toFixed(1)}"/></svg><div class="n">${n == null ? 'n/a' : n}</div><div class="l">${esc(label)}</div></div>`;
+};
 const bar = v => `<div class="bar"><i style="width:${Math.max(0, Math.min(100, v))}%"></i></div>`;
 function renderResults(sc, rid, slides) {
   setPhase('done', 'Results'); $('#clock').classList.add('hidden'); show('results');
@@ -432,12 +466,10 @@ function renderResults(sc, rid, slides) {
   <div class="card"><div class="row" style="justify-content:space-between"><h2 style="font-size:18px;margin:0">Rehearsal results</h2>
     <div class="row"><a class="btn" href="/api/sessions/${S.sid}/rehearsals/${rid}/export.docx">Download report (.docx)</a>
     <a class="btn" href="/rehearse?session=${S.sid}">Rehearse again</a><a class="btn" href="/">Back to pre-read</a></div></div>
-    <div class="scores">
-      <div class="score"><b>${sc.brief_coverage.score}</b><span>Brief coverage</span></div>
-      <div class="score"><b>${sc.gut_feel.score}</b><span>Gut feel</span></div>
-      <div class="score"><b>${sc.total}</b><span>Total (coverage + gut)</span></div>
-      <div class="score"><b>${sc.question_handling.score}</b><span>Question handling</span></div>
-      <div class="score"><b>${sc.delivery_score == null ? 'n/a' : sc.delivery_score}</b><span>${sc.delivery_score == null ? 'Delivery (no timestamps)' : 'Delivery'}</span></div></div>
+    <div class="dials">
+      ${dial(sc.brief_coverage.score, 'Brief coverage')}${dial(sc.gut_feel.score, 'Gut feel')}${dial(sc.total, 'Total')}${dial(sc.question_handling.score, 'Question handling')}${dial(sc.delivery_score, sc.delivery_score == null ? 'Delivery (no timestamps)' : 'Delivery')}</div>
+    <div class="small muted" style="font-family:var(--mono);font-size:10.5px;letter-spacing:1.2px;text-transform:uppercase">Slide-by-slide verdicts</div>
+    <div class="verdicts">${sc.slides.map(x => `<div class="vs ${esc(x.verdict)}" title="${esc(x.n + '. ' + x.title + ': ' + x.verdict)}"><b>${x.n}</b></div>`).join('')}</div>
     <h2>Win likelihood</h2>
     <div class="row" style="gap:30px"><div style="flex:1;min-width:220px"><div class="small muted">Panel's independent read</div><b style="font-size:26px">${w.panel_read_pct}%</b>${bar(w.panel_read_pct)}</div>
     <div style="flex:1;min-width:220px"><div class="small muted">Calculated from the scores</div><b style="font-size:26px">${w.calculated_pct}%</b>${bar(w.calculated_pct)}
@@ -453,6 +485,8 @@ function renderResults(sc, rid, slides) {
     ${sc.slides.map(s => `<tr><td>${s.n}</td><td>${esc(s.title)}</td><td class="pace-${esc(s.pacing)}">${esc(s.pacing)}</td><td>${s.seconds == null ? '' : mmss(s.seconds)}</td><td>${s.words}</td><td><span class="badge b-${esc(s.verdict)}">${esc(s.verdict)}</span></td><td>${s.rating}</td><td>${esc(s.note)}</td></tr>`).join('')}</tbody></table></div></div>
   ${sc.presenters.length ? `<div class="card"><h2>Per presenter</h2>${sc.presenters.map(p => `<h3 style="font-size:14px;margin:12px 0 4px">${esc(p.name)} <span class="muted small">slides ${esc(p.slides || '–')}</span></h3>
     <ul>${p.strengths.map(x => `<li>Strength: ${esc(x)}</li>`).join('')}${p.improve.map(x => `<li>Improve: ${esc(x)}</li>`).join('')}</ul>`).join('')}</div>` : ''}`;
+  $('#results').classList.add('cards-fade');
+  requestAnimationFrame(() => setTimeout(() => document.querySelectorAll('.dial .val').forEach(c => { c.style.strokeDasharray = c.dataset.len + ' ' + c.dataset.c; }), 60));
   window.scrollTo(0, 0);
 }
 
@@ -462,6 +496,8 @@ async function start() {
   try {
     S.presenter = $('#presenter').value.trim() || 'Presenter';
     const startSlide = +$('#startSlide').value;
+    $('#liveInt').value = S.settings.interjection; $('#liveIntV').textContent = S.settings.interjection;
+    $('#liveInt').oninput = () => { $('#liveIntV').textContent = $('#liveInt').value; };
     members(); show('liveWrap'); $('#clock').classList.remove('hidden');
     S.t0 = Date.now(); S.phase = 'pitch'; setPhase('pitch', 'Live', true);
     $('#sOf').textContent = 'of ' + S.slides.length; S.slide = 0; setSlide(startSlide, 'init');

@@ -60,16 +60,16 @@ with sync_playwright() as p:
     pg.wait_for_function("document.querySelector('#feed').innerText.includes('sick chef')", timeout=10000)
     time.sleep(0.8); pg.click("#doneAns")
     pg.wait_for_selector("#results:not(.hidden)", timeout=15000)
-    txt = pg.inner_text("#results"); print(txt[:260].replace("\n", " | "))
+    txt = pg.inner_text("#results"); low = txt.lower(); print(txt[:260].replace("\n", " | "))
     for needle in ["Brief coverage", "Win likelihood", "58%", "Add a cost per demo", "waffled", "Per presenter", "Download report"]:
-        assert needle in txt, needle
+        assert needle.lower() in low, needle
     href = pg.get_attribute("a:has-text('Download report')", "href")
     r = pg.request.get(URL + href); assert r.status == 200 and r.body()[:2] == b"PK"
     # pre-read page: export button, rehearse button, past rehearsals
     pg.goto(URL + "/"); pg.evaluate(f"openSession('{sid}')"); pg.wait_for_selector("#exportBtn")
     assert pg.get_attribute("#exportBtn", "href").endswith("export.docx") and "/rehearse?session=" in pg.get_attribute("#rehBtn", "href")
     pg.wait_for_selector("#pastReh a", timeout=5000); print("past:", pg.inner_text("#pastReh"))
-    pg.click("#pastReh a"); pg.wait_for_selector("#results:not(.hidden)"); assert "Win likelihood" in pg.inner_text("#results")
+    pg.click("#pastReh a"); pg.wait_for_selector("#results:not(.hidden)"); assert "win likelihood" in pg.inner_text("#results").lower()
     # review a past pitch from the front page
     pg.goto(URL + "/"); pg.wait_for_selector("#go")
     assert not pg.is_visible("#trText") and pg.is_visible("#personas")

@@ -167,7 +167,7 @@ def slide_ready(pace: str, dwell: float, words: int):
 
 def live_turn(client, ctx: str, sess: dict, state: dict) -> dict:
     st = sess["settings"]
-    level = int(st.get("interjection", 5))
+    level = int(state.get("interjection", st.get("interjection", 5)))
     now = float(state.get("elapsed", 0))
     asked = [a for a in state.get("asked", []) if a.get("kind") == "live"]
     why = gate(level, [float(a.get("t", 0)) for a in asked], now)

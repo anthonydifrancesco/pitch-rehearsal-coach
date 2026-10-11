@@ -49,7 +49,7 @@
       this.canvas.width = Math.round(css * dpr); this.canvas.height = Math.round(css * dpr);
     }
     state() {
-      const host = this.canvas.closest('.member');
+      const host = this.canvas.closest('.member, .focus');
       if (!host) return this.forced || 'idle';
       if (host.classList.contains('speaking')) return 'speaking';
       if (host.classList.contains('thinking')) return 'thinking';
@@ -218,5 +218,10 @@
     },
     /** For previews: force a state when the canvas is not inside a .member. */
     force(cv, state) { if (cv._orb) cv._orb.forced = state; },
+    /** Change an orb's colour (used by the focus orb to take on the speaker's colour). */
+    recolour(cv, colour) {
+      const o = cv._orb; if (!o || o.colourKey === colour) return; o.colourKey = colour;
+      o.base = hex(colour); o.hi = mix(o.base, [255, 255, 255], 0.6); o.mid = mix(o.base, [255, 255, 255], 0.25); o.deep = mix(o.base, [6, 8, 18], 0.9);
+    },
   };
 })();
