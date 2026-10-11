@@ -190,6 +190,21 @@ async function api(path, opts) {
   const r = await fetch(path, opts); const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.detail || r.statusText); return j;
 }
+
+async function apiLong(path, opts) {           // long AI calls: run on the server, poll until done (survives dropped connections)
+  const r = await api(path + (path.includes('?') ? '&' : '?') + 'bg=1', opts);
+  if (!r.job) return r;
+  let fails = 0;
+  for (;;) {
+    await new Promise(res => setTimeout(res, 2500));
+    let j;
+    try { j = await api('/api/jobs/' + r.job); fails = 0; }
+    catch (e) { if (/gone|restarted/i.test(e.message) || ++fails > 20) throw e; continue; }
+    if (j.state === 'done') return j.result;
+    if (j.state === 'error') throw new Error(j.detail || 'The server reported an error.');
+  }
+}
+
 const post = (p, body) => api(p, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
 function show(id) { for (const s of ['pre', 'liveWrap', 'scoring', 'results']) $('#' + s).classList.toggle('hidden', s !== id); }
 function setPhase(p, label, live) { S.phase = p; const e = $('#phasePill'); e.textContent = label; e.classList.toggle('live', !!live); }
@@ -413,7 +428,7 @@ $('#finish').onclick = async () => {
   $('#finish').classList.add('hidden'); $('#pause').classList.add('hidden'); $('#panelOn').parentElement.classList.add('hidden'); $('#liveIntWrap').classList.add('hidden');
   banner('info', '<span class="spin"></span>The panel is conferring on its questions…');
   try {
-    const { questions } = await post(`/api/sessions/${S.sid}/rehearsals/${S.rid}/qa`, { events: S.events });
+    const { questions } = await apiLong(`/api/sessions/${S.sid}/rehearsals/${S.rid}/qa`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ events: S.events }) });
     banner('info', 'Question time. Answer out loud; press <b>Done answering</b> (or pause for a few seconds) to move on.');
     $('#doneAns').classList.remove('hidden'); $('#skipQ').classList.remove('hidden'); $('#endQA').classList.remove('hidden');
     thinking(false);
@@ -446,7 +461,7 @@ async function finishAndScore() {
   S.wantListen = false; stopRec(); speechSynthesis.cancel(); clearInterval(S.ticker);
   setPhase('scoring', 'Scoring'); show('scoring');
   try {
-    const sc = await post(`/api/sessions/${S.sid}/rehearsals/${S.rid}/score`, { events: S.events });
+    const sc = await apiLong(`/api/sessions/${S.sid}/rehearsals/${S.rid}/score`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ events: S.events }) });
     renderResults(sc, S.rid, S.slides);
   } catch (e) {
     $('#scoring').innerHTML = `<div class="card"><div class="banner bad">Scoring failed: ${esc(e.message)}</div><p class="muted small">Your transcript is saved. Try again, or open it from the pre-read page.</p><button class="primary" onclick="location.reload()">Reload</button></div>`;

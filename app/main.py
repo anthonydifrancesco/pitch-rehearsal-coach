@@ -161,8 +161,45 @@ async def create_session(
     return {"id": sid, "slide_count": len(slides), "rfp_chars": len(text)}
 
 
+# ---- background jobs: long AI calls can outlive a single browser connection (proxies, redeploys), so the
+# browser may ask for "?bg=1": the call runs server-side and the browser polls /api/jobs/{id}.
+import asyncio
+JOBS: Dict[str, dict] = {}
+
+
+async def _maybe_bg(bg: int, fn, *args):
+    if not bg:
+        return await fn(*args)
+    jid = uuid.uuid4().hex[:12]
+    JOBS[jid] = {"state": "running", "t": time.time()}
+    for k in [k for k, v in JOBS.items() if time.time() - v["t"] > 3600]:
+        JOBS.pop(k, None)
+
+    async def run():
+        try:
+            JOBS[jid].update(state="done", result=await fn(*args))
+        except HTTPException as e:
+            JOBS[jid].update(state="error", status=e.status_code, detail=e.detail)
+        except Exception as e:  # noqa: BLE001
+            JOBS[jid].update(state="error", status=500, detail=f"{type(e).__name__}: {e}")
+    asyncio.get_running_loop().create_task(run())
+    return JSONResponse({"job": jid}, status_code=202)
+
+
+@app.get("/api/jobs/{jid}")
+def job_status(jid: str):
+    j = JOBS.get(jid)
+    if not j:
+        raise HTTPException(404, "That job is gone (the server may have restarted). Please run it again.")
+    return {k: v for k, v in j.items() if k != "t"}
+
+
 @app.post("/api/sessions/{sid}/preread")
-async def do_preread(sid: str):
+async def do_preread(sid: str, bg: int = 0):
+    return await _maybe_bg(bg, _do_preread, sid)
+
+
+async def _do_preread(sid: str):
     sess = _read(sid)
     if len(sess.get("rfp_text", "")) < 200:
         raise HTTPException(400, "This session came from a Pitch Pack that doesn't include the RFP text, so the "
@@ -424,7 +461,11 @@ async def assess_past(
 
 
 @app.post("/api/sessions/{sid}/rehearsals/{rid}/review")
-async def make_review(sid: str, rid: str):
+async def make_review(sid: str, rid: str, bg: int = 0):
+    return await _maybe_bg(bg, _make_review, sid, rid)
+
+
+async def _make_review(sid: str, rid: str):
     """Step 2 of reviewing a real pitch: write the requirements / conversation / client-questions report."""
     sess = _with_preread(sid)
     reh = _reh_read(sid, rid)
@@ -499,7 +540,11 @@ async def reh_reply(sid: str, rid: str, body: dict):
 
 
 @app.post("/api/sessions/{sid}/rehearsals/{rid}/qa")
-async def reh_qa(sid: str, rid: str, body: dict):
+async def reh_qa(sid: str, rid: str, body: dict, bg: int = 0):
+    return await _maybe_bg(bg, _reh_qa, sid, rid, body)
+
+
+async def _reh_qa(sid: str, rid: str, body: dict):
     sess = _with_preread(sid)
     reh = _reh_read(sid, rid)
     reh["events"] = body.get("events", reh["events"])
@@ -520,7 +565,11 @@ async def reh_qa(sid: str, rid: str, body: dict):
 
 
 @app.post("/api/sessions/{sid}/rehearsals/{rid}/score")
-async def reh_score(sid: str, rid: str, body: dict):
+async def reh_score(sid: str, rid: str, body: dict, bg: int = 0):
+    return await _maybe_bg(bg, _reh_score, sid, rid, body)
+
+
+async def _reh_score(sid: str, rid: str, body: dict):
     sess = _with_preread(sid)
     reh = _reh_read(sid, rid)
     reh["events"] = body.get("events", reh["events"])

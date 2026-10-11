@@ -39,4 +39,19 @@ assert r == {"slide": 4, "total": 20, "name": "deck.pptx", "mode": "slideshow", 
 assert c.post("/api/slide", headers=H, json={"nonsense": 1}).status_code == 400
 m._helper["t"] = time.time() - 30                                          # helper went quiet
 r = c.get("/api/slide", headers=H).json(); assert r["available"] is False and "stopped" in r["reason"]
+# background jobs: long calls run server-side and are polled
+import asyncio
+async def _slow(x):
+    await asyncio.sleep(0.2); return {"x": x}
+async def _bad():
+    raise m.HTTPException(400, "nope")
+async def _jobs():
+    r = await m._maybe_bg(1, _slow, 7); jid = json.loads(r.body)["job"]
+    assert m.job_status(jid)["state"] == "running"; await asyncio.sleep(0.5)
+    assert m.job_status(jid) == {"state": "done", "result": {"x": 7}}
+    jid2 = json.loads((await m._maybe_bg(1, _bad)).body)["job"]; await asyncio.sleep(0.1)
+    assert m.job_status(jid2)["state"] == "error" and m.job_status(jid2)["detail"] == "nope"
+    assert await m._maybe_bg(0, _slow, 1) == {"x": 1}
+import json
+asyncio.run(_jobs())
 print("HOSTING OK")

@@ -248,6 +248,21 @@ async function api(path, opts) {
   return j;
 }
 
+
+async function apiLong(path, opts) {           // long AI calls: run on the server, poll until done (survives dropped connections)
+  const r = await api(path + (path.includes('?') ? '&' : '?') + 'bg=1', opts);
+  if (!r.job) return r;
+  let fails = 0;
+  for (;;) {
+    await new Promise(res => setTimeout(res, 2500));
+    let j;
+    try { j = await api('/api/jobs/' + r.job); fails = 0; }
+    catch (e) { if (/gone|restarted/i.test(e.message) || ++fails > 20) throw e; continue; }
+    if (j.state === 'done') return j.result;
+    if (j.state === 'error') throw new Error(j.detail || 'The server reported an error.');
+  }
+}
+
 /* ---------- setup ---------- */
 function renderPersonas() {
   $('#personas').innerHTML = personas.map((p, i) => `
@@ -350,7 +365,7 @@ $('#go').onclick = async () => {
     fd.append('rfp_text', $('#rfpText').value);
     const made = await api('/api/sessions', {method: 'POST', body: fd});
     msg.innerHTML = `<span class="spin"></span>Read ${made.slide_count} slides. The pre-read takes a minute or two…`;
-    await api(`/api/sessions/${made.id}/preread`, {method: 'POST'});
+    await apiLong(`/api/sessions/${made.id}/preread`, {method: 'POST'});
     if (review) {
       msg.innerHTML = '<span class="spin"></span>Matching the transcript to your slides (about a minute)…';
       const t = new FormData();
@@ -358,7 +373,7 @@ $('#go').onclick = async () => {
       t.append('transcript_text', ttext); t.append('our_side', $('#trSide').value); t.append('outcome', $('#trOutcome').value); t.append('notes', $('#trNotes').value);
       const a = await api(`/api/sessions/${made.id}/assess`, {method: 'POST', body: t});
       msg.innerHTML = '<span class="spin"></span>Writing the review: requirements, deck, conversation and client questions (1–2 minutes)…';
-      await api(`/api/sessions/${made.id}/rehearsals/${a.rid}/review`, {method: 'POST'});
+      await apiLong(`/api/sessions/${made.id}/rehearsals/${a.rid}/review`, {method: 'POST'});
       location.href = `/review?session=${made.id}&rid=${a.rid}`;
       return;
     }
@@ -484,7 +499,7 @@ $('#rerun').onclick = async () => {
     sess.settings.guidance = $('#guidance2').value.trim();
     await api(`/api/sessions/${sess.id}/settings`, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(sess.settings)});
     msg.innerHTML = '<span class="spin"></span>Re-running the pre-read (a minute or two)…';
-    await api(`/api/sessions/${sess.id}/preread`, {method: 'POST'});
+    await apiLong(`/api/sessions/${sess.id}/preread`, {method: 'POST'});
     await openSession(sess.id); msg.textContent = 'Updated.';
   } catch (e) { msg.innerHTML = `<span style="color:var(--bad)">${esc(e.message)}</span>`; }
   finally { btn.disabled = false; }
