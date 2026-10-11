@@ -82,17 +82,22 @@ def script_lines(events: list, settings: dict, titles: dict) -> str:
         k = e.get("type")
         if k == "speech":
             tag = "Q&A ANSWER" if e.get("phase") == "qa" else (e.get("speaker") or "Presenter")
-            out.append(f"[{t}] (slide {e.get('slide')}) {tag}: {e.get('text', '')}")
+            key = (tag, e.get("slide"))
+            # speech arrives in short fragments: join runs by the same speaker on the same slide into one line
+            if out and out[-1][0] == key and e.get("t", 0) - out[-1][1] <= 25:
+                out[-1][2] = e.get("t", 0); out[-1][3] += " " + str(e.get("text", "")).strip(); continue
+            out.append([key, e.get("t", 0), e.get("t", 0), f"[{t}] (slide {e.get('slide')}) {tag}: {str(e.get('text', '')).strip()}"])
+            continue
         elif k == "panel":
             p = pers.get(e.get("persona_id")) or {"name": e.get("speaker_name") or "Client", "title": "client"}
             tgt = e.get("target")
             to = f" to {tgt}" if tgt and tgt != "room" else ""
             kind = {"qa": "end Q&A question", "reply": "reply to the presenter's clarifying question"}.get(
                 e.get("kind"), "interjection")
-            out.append(f"[{t}] PANEL - {p.get('name', '?')} ({p.get('title', '')}) {kind}{to}: {e.get('text', '')}")
+            out.append([None, 0, 0, f"[{t}] PANEL - {p.get('name', '?')} ({p.get('title', '')}) {kind}{to}: {e.get('text', '')}"])
         elif k == "slide":
-            out.append(f"[{t}] -- slide {e.get('slide')}: {titles.get(e.get('slide'), '')} --")
-    return "\n".join(out)
+            out.append([None, 0, 0, f"[{t}] -- slide {e.get('slide')}: {titles.get(e.get('slide'), '')} --"])
+    return "\n".join(o[3] for o in out)
 
 
 # ---------------------------------------------------------------- shared context (cached block)
@@ -143,8 +148,20 @@ def build_context(sess: dict, pr: dict) -> str:
     return "\n".join(lines)
 
 
-def _blocks(ctx: str, dynamic: str) -> list:
-    return [{"type": "text", "text": ctx, "cache_control": {"type": "ephemeral"}}, {"type": "text", "text": dynamic}]
+def _blocks(ctx: str, dynamic: str, ttl: str | None = None, images: list | None = None) -> list:
+    """Stable, cacheable material first (brief and deck analysis, then the slide on screen), the changing part last.
+    `ttl="1h"` keeps the cache warm through long pauses (used by the live panel)."""
+    cc = {"type": "ephemeral", **({"ttl": ttl} if ttl else {})}
+    out = [{"type": "text", "text": ctx, "cache_control": cc}]
+    if images:
+        out.append({"type": "text", "text": f"SLIDE ON SCREEN NOW ({len(images)} image{'s' if len(images) > 1 else ''} from that slide):"})
+        out += [{"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": b}} for b in images]
+        out[-1]["cache_control"] = {"type": "ephemeral"}   # the same slide is checked many times in a row
+    out.append({"type": "text", "text": dynamic})
+    return out
+
+
+LIVE_CACHE_TTL = os.environ.get("LIVE_CACHE_TTL", "1h") or None
 
 
 # ---------------------------------------------------------------- live interjections
@@ -159,6 +176,9 @@ a requirement being skipped, a risk, or a number that doesn't add up. Otherwise 
 the slide shows that they have not yet got to, because they may be about to cover it. If they are mid-explanation, stay silent.
 - Mostly ask about the slide on screen. Occasionally (about one in five) circle back to something from a few slides earlier.
 - If the context says only some slides are being rehearsed, only ever ask about those slides and requirements.
+- If slide images are attached they show what the client sees right now. A stakeholder reacts to what is on screen: a chart that does not \
+support the claim, a number that differs from the speech, a photo that shows something the presenter has not mentioned. Treat the image \
+as evidence, but the same rule applies: only ask once the presenter has had a chance to speak to it.
 - Choose the persona whose role and appetite fit. Weight by question appetite, avoid the same person twice in a row, and don't ignore key decision-makers.
 - Never repeat or rephrase a question already asked. If the presenter has just deferred a question ("coming up later"), do not ask it again until that slide.
 - Match tone to difficulty: gentle = curious and polite; brutal = blunt, sceptical, pushes back on vague answers.
@@ -192,7 +212,11 @@ def slide_ready(pace: str, dwell: float, words: int):
     return dwell >= need_s and words >= need_w
 
 
-def live_turn(client, ctx: str, sess: dict, state: dict) -> dict:
+def live_model(quality: str | None) -> str:
+    return SCORE_MODEL if quality == "sharp" else LIVE_MODEL
+
+
+def live_turn(client, ctx: str, sess: dict, state: dict, images: list | None = None, quality: str | None = None) -> dict:
     st = sess["settings"]
     level = int(state.get("interjection", st.get("interjection", 5)))
     now = float(state.get("elapsed", 0))
@@ -221,7 +245,8 @@ def live_turn(client, ctx: str, sess: dict, state: dict) -> dict:
         "",
         "Decide now. JSON only.",
     ])
-    text, _, _ = ask_text(client, LIVE_MODEL, LIVE_SYSTEM, _blocks(ctx, dyn), 500, live_thinking(LIVE_MODEL))
+    model = live_model(quality)
+    text, _, _ = ask_text(client, model, LIVE_SYSTEM, _blocks(ctx, dyn, LIVE_CACHE_TTL, images), 500, live_thinking(model))
     try:
         j = parse_json(text)
     except ValueError:
@@ -255,7 +280,7 @@ and do not hint at the 'right' answer. Stay in the persona's tone for the diffic
 Reply with ONLY a JSON object: {"clarifying": true|false, "persona_id": "<id>", "text": "<the spoken reply>"}"""
 
 
-def reply_turn(client, ctx: str, sess: dict, body: dict) -> dict:
+def reply_turn(client, ctx: str, sess: dict, body: dict, quality: str | None = None) -> dict:
     st = sess["settings"]
     titles = {s["n"]: s["title"] for s in sess["slides"]}
     pers = personas_by_id(st)
@@ -270,7 +295,8 @@ def reply_turn(client, ctx: str, sess: dict, body: dict) -> dict:
         f"THE PRESENTER JUST SAID: {_text(body.get('said'))}",
         "JSON only.",
     ])
-    text, _, _ = ask_text(client, LIVE_MODEL, REPLY_SYSTEM, _blocks(ctx, dyn), 400, live_thinking(LIVE_MODEL))
+    model = live_model(quality)
+    text, _, _ = ask_text(client, model, REPLY_SYSTEM, _blocks(ctx, dyn, LIVE_CACHE_TTL), 400, live_thinking(model))
     try:
         j = parse_json(text)
     except ValueError:
@@ -303,7 +329,7 @@ def qa_count(settings: dict) -> int:
     return int(max(3, min(10, round(total / 3))))
 
 
-def qa_questions(client, ctx: str, sess: dict, events: list, qa_only: bool = False, n: int | None = None) -> list:
+def qa_questions(client, ctx: str, sess: dict, events: list, qa_only: bool = False, n: int | None = None, prior: str = "") -> list:
     st = sess["settings"]
     titles = {s["n"]: s["title"] for s in sess["slides"]}
     n = max(1, min(12, int(n))) if n else qa_count(st)
@@ -317,6 +343,9 @@ def qa_questions(client, ctx: str, sess: dict, events: list, qa_only: bool = Fal
     else:
         dyn = (f"Write {n} questions. Variation token: {random.randint(1000, 9999)}.\n\n{rng}FULL TRANSCRIPT SO FAR:\n"
                + (script_lines(events, st, titles) or "(the presenter said very little)") + "\n\nJSON only.")
+    if prior:
+        dyn = dyn.replace("\n\nJSON only.", "\n\nWEAK SPOTS FLAGGED IN EARLIER REHEARSALS OF THIS PITCH (probe at least one again if it falls within the slides being rehearsed, "
+                          "to see whether the presenter has fixed it; ignore any that do not):\n" + prior + "\n\nJSON only.")
     text, _, _ = ask_text(client, SCORE_MODEL, QA_SYSTEM, _blocks(ctx, dyn), 4000, {"type": "between_tools"})
     j = parse_json(text)
     pers = personas_by_id(st)

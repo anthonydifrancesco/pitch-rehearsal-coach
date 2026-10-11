@@ -26,3 +26,10 @@ For much more natural, accent-matched voices, add one more key in Render > Envir
 - or `ELEVENLABS_API_KEY` — ElevenLabs stock voices chosen by gender, accent and age.
 
 The text the panel says is sent to that vendor, so check with IT. Set `TTS_PROVIDER=off` to switch it off. If the service fails the page falls back to browser voices automatically.
+
+## Keeping AI use down
+
+- The panel's brief and deck analysis are cached for an hour during a rehearsal (`LIVE_CACHE_TTL=1h`; set it to `5m` to use the standard cache, or empty to turn the long cache off).
+- With "Read the slide visuals" ticked, the live panel is shown only the slide currently on screen.
+- Each results page shows how many AI calls the rehearsal made and what share of the text came from cache.
+- Settings → Live panel switches interjections between Quick (default) and Sharp (stronger model, higher cost).

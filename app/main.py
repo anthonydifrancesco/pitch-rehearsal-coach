@@ -23,6 +23,7 @@ from . import visuals as VIS
 from . import tts as TTS
 from . import review as RV
 from .llm import get_client
+from . import llm as LLM
 from .personas import load_personas, reset_personas, sanitize, save_personas
 from .slidewatch import current_slide
 from .preread import DEFAULT_MODEL, PACING, run_preread
@@ -48,6 +49,7 @@ def _load_env() -> None:
 
 _load_env()
 SESSIONS.mkdir(parents=True, exist_ok=True)
+LLM.USAGE_ROOT = SESSIONS
 app = FastAPI(title="Pitch Rehearsal Coach")
 
 
@@ -251,6 +253,7 @@ async def _do_preread(sid: str):
     if len(sess.get("rfp_text", "")) < 200:
         raise HTTPException(400, "This session came from a Pitch Pack that doesn't include the RFP text, so the "
                                  "pre-read can't be re-run here. Re-run the analysis in the analysis tool and import a fresh pack.")
+    LLM.track(sid, "preread")
     try:
         result = await run_in_threadpool(run_preread, sess["rfp_text"], sess["slides"], sess["settings"],
                                           None, _dir(sid) / "raw_preread.json", VIS.load(_dir(sid) / "visuals"))
@@ -494,6 +497,7 @@ async def assess_past(
         raise HTTPException(400, "That transcript looks too short to assess. Paste the whole meeting transcript.")
     ctx = R.build_context(sess, sess["preread"])
     rid = uuid.uuid4().hex[:10]
+    LLM.track(sid, rid)
     dbg = _dir(sid) / "rehearsals" / (rid + ".raw_map.json")
     dbg.parent.mkdir(exist_ok=True)
     total = len(sess["slides"])
@@ -531,6 +535,7 @@ async def _make_review(sid: str, rid: str):
     if not reh.get("past"):
         raise HTTPException(400, "This is not a past-pitch record")
     ctx = R.build_context(sess, sess["preread"])
+    LLM.track(sid, rid)
     dbg = _reh_file(sid, rid).with_suffix(".raw_review.json")
 
     def run():
@@ -676,9 +681,17 @@ async def reh_turn(sid: str, rid: str, state: dict):
     sess = _with_preread(sid)
     _reh_read(sid, rid)
     ctx = R.build_context(sess, sess["preread"])
+    LLM.track(sid, rid)
+    # the panel sees the slide that is on screen (only when the deck's visuals were read), not the whole deck
+    try:
+        n = int(state.get("slide", 0))
+    except (TypeError, ValueError):
+        n = 0
+    imgs = [v["b64"] for v in VIS.load(_dir(sid) / "visuals") if v["n"] == n][:2]
+    quality = "sharp" if state.get("quality") == "sharp" else "fast"
 
     def run():
-        return R.live_turn(get_client(), ctx, sess, state)
+        return R.live_turn(get_client(), ctx, sess, state, imgs, quality)
 
     try:
         return await run_in_threadpool(run)
@@ -693,9 +706,11 @@ async def reh_reply(sid: str, rid: str, body: dict):
     sess = _with_preread(sid)
     _reh_read(sid, rid)
     ctx = R.build_context(sess, sess["preread"])
+    LLM.track(sid, rid)
+    quality = "sharp" if body.get("quality") == "sharp" else "fast"
 
     def run():
-        return R.reply_turn(get_client(), ctx, sess, body)
+        return R.reply_turn(get_client(), ctx, sess, body, quality)
 
     try:
         return await run_in_threadpool(run)
@@ -717,9 +732,11 @@ async def _reh_qa(sid: str, rid: str, body: dict):
     if body.get("qa_only"):
         reh["mode"] = "qa_only"
     ctx = R.build_context(sess, sess["preread"])
+    LLM.track(sid, rid)
+    prior = _prior_gaps(sid, rid)
 
     def run():
-        return R.qa_questions(get_client(), ctx, sess, reh["events"], bool(body.get("qa_only")), body.get("n"))
+        return R.qa_questions(get_client(), ctx, sess, reh["events"], bool(body.get("qa_only")), body.get("n"), prior)
 
     try:
         qs = await run_in_threadpool(run)
@@ -744,6 +761,7 @@ async def _reh_score(sid: str, rid: str, body: dict):
     _reh_write(sid, rid, reh)  # keep the transcript even if scoring fails
     ctx = R.build_context(sess, sess["preread"])
     dbg = _reh_file(sid, rid).with_suffix(".raw_score.json")
+    LLM.track(sid, rid)
 
     past = reh.get("past")
     note = PP.score_note(past) if past else ""
@@ -761,6 +779,49 @@ async def _reh_score(sid: str, rid: str, body: dict):
     reh["score"] = sc
     _reh_write(sid, rid, reh)
     return sc
+
+
+def _prior_gaps(sid: str, rid: str, keep: int = 2) -> str:
+    """The top actions from the last couple of scored rehearsals of this pitch, so question time can check they were fixed."""
+    d = _dir(sid) / "rehearsals"
+    found = []
+    for f in d.glob("*.json") if d.exists() else []:
+        if f.name.endswith(".raw_score.json"):
+            continue
+        try:
+            r = json.loads(f.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if r.get("id") == rid or r.get("review") or not (r.get("score") or {}).get("top_actions"):
+            continue
+        found.append((r.get("started", ""), r["score"]["top_actions"]))
+    found.sort(reverse=True)
+    seen, lines = set(), []
+    for _, acts in found[:keep]:
+        for a in acts[:4]:
+            a = str(a).strip()[:220]
+            if a and a.lower() not in seen:
+                seen.add(a.lower()); lines.append("- " + a)
+    return "\n".join(lines[:6])
+
+
+def _usage_totals(sid: str, name: str) -> dict:
+    f = LLM.usage_path(sid, name)
+    d = json.loads(f.read_text(encoding="utf-8")) if f and f.exists() else {}
+    tot = {"calls": 0, "input": 0, "cache_read": 0, "cache_write": 0, "output": 0}
+    for m in d.values():
+        for k in tot:
+            tot[k] += m.get(k, 0)
+    prompt = tot["input"] + tot["cache_read"] + tot["cache_write"]
+    return {"models": d, **tot, "prompt_tokens": prompt, "cache_hit_pct": round(100 * tot["cache_read"] / prompt) if prompt else 0}
+
+
+@app.get("/api/sessions/{sid}/rehearsals/{rid}/usage")
+def reh_usage(sid: str, rid: str):
+    _dir(sid)
+    if not ID_RE.match(rid):
+        raise HTTPException(400, "Bad id")
+    return _usage_totals(sid, rid)
 
 
 @app.get("/api/sessions/{sid}/rehearsals/{rid}")

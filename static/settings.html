@@ -40,6 +40,12 @@ label.opt{display:flex;gap:10px;align-items:flex-start;padding:8px 0}
     <label class="opt"><input type="checkbox" id="pVis"> <span><b>Tick “Read the slide visuals” by default</b><br><span class="hint" style="margin:0">Uses more API credit and takes longer. You can still change it for each pitch.</span></span></label>
   </div>
   <div class="card">
+    <h2>Live panel</h2>
+    <p class="hint">Which AI model plays the panel while you pitch.</p>
+    <label class="opt"><input type="radio" name="pLive" value="fast"> <span><b>Quick</b> (recommended)<br><span class="hint" style="margin:0">Fast and low cost. Good for everyday practice.</span></span></label>
+    <label class="opt"><input type="radio" name="pLive" value="sharp"> <span><b>Sharp</b><br><span class="hint" style="margin:0">Uses a stronger model for interjections and clarifying replies: better judgement and more natural pushback, but slower and several times the cost. Best kept for a final dress rehearsal. Question time and scoring always use the stronger model.</span></span></label>
+  </div>
+  <div class="card">
     <h2>Motion</h2>
     <label class="opt"><input type="checkbox" id="pCalm"> <span><b>Calm orbs</b><br><span class="hint" style="margin:0">Slows the orb animation. Helpful on older laptops, or if the movement is distracting.</span></span></label>
   </div>
@@ -66,6 +72,7 @@ document.getElementById('themes').onclick = e => { const b = e.target.closest('.
 draw();
 const pv = document.getElementById('pVis'), pc = document.getElementById('pCalm');
 pv.checked = PRC.pref('visuals', '0') === '1'; pc.checked = PRC.pref('calm', '0') === '1';
+document.querySelectorAll('input[name=pLive]').forEach(r => { r.checked = r.value === PRC.pref('live', 'fast'); r.onchange = () => PRC.setPref('live', r.value); });
 pv.onchange = () => PRC.setPref('visuals', pv.checked ? '1' : '0');
 pc.onchange = () => PRC.setPref('calm', pc.checked ? '1' : '0');
 document.getElementById('resetPanel').onclick = async () => {

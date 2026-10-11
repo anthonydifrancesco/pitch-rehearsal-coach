@@ -309,6 +309,8 @@ def run_preread(rfp_text: str, slides: list[dict], settings: dict, client=None, 
             pass
     result = normalise(raw, len(slides))
     u = getattr(msg, "usage", None)
+    from .llm import record
+    record(model, u)
     result["meta"] = {
         "model": model,
         "input_tokens": getattr(u, "input_tokens", None),

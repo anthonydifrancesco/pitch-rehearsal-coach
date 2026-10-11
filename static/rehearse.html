@@ -356,7 +356,7 @@ async function maybeClarify(text, wc) {
   S.replying = true; S.busy = true; let clar = false;
   try {
     const now = el();
-    const r = await post(`/api/sessions/${S.sid}/rehearsals/${S.rid}/reply`, { persona_id: p.pid, question: p.text, said: text, slide: S.slide,
+    const r = await post(`/api/sessions/${S.sid}/rehearsals/${S.rid}/reply`, { persona_id: p.pid, question: p.text, said: text, slide: S.slide, quality: livePref(),
       recent: S.events.filter(e => e.t >= now - 150) });
     if (r.clarifying && S.pending === p) { clar = true; p.count++; await panelSpeaks(r.persona_id, r.text, 'room', S.slide, 'reply'); p.at = Date.now(); }
     /* not a clarification: keep listening, because a clarifying question can still follow a short answer or 'good question' */
@@ -373,7 +373,7 @@ function setSlide(n, src) {
   if (S.phase === 'pitch' || src === 'init') {
     S.events.push({ type: 'slide', t: +el().toFixed(1), slide: n }); S.dirty = true;
     S.slideStartAt = Date.now(); S.slideWords = 0;
-    if (src !== 'init') { S.slideChanged = true; S.slideChangedAt = Date.now(); feed(`slide ${n}: ${esc(sl.title || '')}`, 's'); }
+    if (src !== 'init') { S.silent = 0; S.slideChanged = true; S.slideChangedAt = Date.now(); feed(`slide ${n}: ${esc(sl.title || '')}`, 's'); }
   }
 }
 $('#prev').onclick = () => setSlide(S.slide - 1, 'manual');
@@ -437,8 +437,9 @@ async function checkTurn() {
   try {
     const now = el();
     const r = await post(`/api/sessions/${S.sid}/rehearsals/${S.rid}/turn`, { interjection: +$('#liveInt').value, slide: S.slide, elapsed: now, asked: S.asked,
-      slide_dwell: (Date.now() - S.slideStartAt) / 1000, slide_words: S.slideWords,
+      slide_dwell: (Date.now() - S.slideStartAt) / 1000, slide_words: S.slideWords, quality: livePref(),
       recent: S.events.filter(e => e.t >= now - 150) });
+    S.silent = r.interject ? 0 : (S.silent || 0) + 1;   // each quiet answer means the panel needs a little more speech before it is asked again
     if (r.interject && S.phase === 'pitch' && !S.paused) { thinking(false); await panelSpeaks(r.persona_id, r.text, r.target, r.about_slide, 'live'); }
   } catch (e) { feed('(panel unavailable: ' + esc(e.message) + ')', 'i'); }
   finally { S.busy = false; thinking(false); }
@@ -451,7 +452,13 @@ function maybeCheck() {
   if (quiet < 1.4 || (Date.now() - S.lastCheck) < 10000) return;
   const sl = S.slides[S.slide - 1] || {}, need = READY[sl.pacing || 'normal'] || READY.normal;
   const k = S.readyScale || 1, ready = (Date.now() - S.slideStartAt) / 1000 >= need[0] * k && S.slideWords >= need[1] * k;
-  if (ready && S.wordsSince >= 25) checkTurn();
+  if (ready && S.wordsSince >= 25 + 15 * Math.min(S.silent || 0, 4)) checkTurn();
+}
+function livePref() { try { return window.PRC && PRC.pref('live', 'fast') === 'sharp' ? 'sharp' : 'fast'; } catch (e) { return 'fast'; } }
+async function loadUsage(rid) {
+  try { const u = await api(`/api/sessions/${S.sid}/rehearsals/${rid}/usage`); if (!u.calls) return;
+    const k = n => n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1) + 'k' : n;
+    $('#usageLine').textContent = `AI use for this rehearsal: ${u.calls} calls, ${k(u.prompt_tokens)} tokens read (${u.cache_hit_pct}% from cache), ${k(u.output)} written.`; } catch (e) {}
 }
 function logMeta() { return { presenter: S.presenter, session_type: S.stype || 'full', range: S.range }; }
 function tick() {
@@ -522,12 +529,13 @@ const dial = (v, label) => {
 };
 const bar = v => `<div class="bar"><i style="width:${Math.max(0, Math.min(100, v))}%"></i></div>`;
 function renderResults(sc, rid, slides) {
-  setPhase('done', 'Results'); $('#clock').classList.add('hidden'); show('results');
+  setPhase('done', 'Results'); $('#clock').classList.add('hidden'); show('results'); setTimeout(() => loadUsage(rid), 0);
   const w = sc.win_likelihood, qo = !!(sc.meta && sc.meta.qa_only), part = S.range && S.slides.length && (S.range[1] - S.range[0] + 1 < S.slides.length);
   $('#results').innerHTML = `
   <div class="card"><div class="row" style="justify-content:space-between"><h2 style="font-size:18px;margin:0">${qo ? 'Question time results' : 'Rehearsal results'}</h2>
     <div class="row"><a class="btn" href="/api/sessions/${S.sid}/rehearsals/${rid}/export.docx">Download report (.docx)</a>
     <a class="btn" href="/rehearse?session=${S.sid}">Rehearse again</a><a class="btn" href="/">Back to pre-read</a></div></div>
+    <p class="small muted" id="usageLine" style="margin:10px 0 0"></p>
     ${part ? `<p class="small muted" style="margin:10px 0 0">Judged on slides ${S.range[0]}-${S.range[1]} only. Requirements and slides outside that range are not counted.</p>` : ''}
     <div class="dials">
       ${sc.meta && sc.meta.qa_only ? '' : dial(sc.brief_coverage.score, 'Brief coverage')}${dial(sc.gut_feel.score, 'Gut feel')}${dial(sc.total, 'Total')}${dial(sc.question_handling.score, 'Question handling')}${sc.meta && sc.meta.qa_only ? '' : dial(sc.delivery_score, sc.delivery_score == null ? 'Delivery (no timestamps)' : 'Delivery')}</div>
