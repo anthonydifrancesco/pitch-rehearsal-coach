@@ -20,6 +20,7 @@ from . import rehearse as R
 from . import pastpitch as PP
 from . import pack as PK
 from . import visuals as VIS
+from . import tts as TTS
 from . import review as RV
 from .llm import get_client
 from .personas import load_personas, reset_personas, sanitize, save_personas
@@ -105,7 +106,21 @@ def config():
         "has_key": bool(os.environ.get("ANTHROPIC_API_KEY", "").strip()),
         "model": os.environ.get("PREREAD_MODEL", DEFAULT_MODEL),
         "personas": load_personas(),
+        "tts": TTS.provider(),
     }
+
+
+@app.post("/api/tts")
+async def tts(body: dict):
+    """Neural voice for one line the panel says. 503 when no key is set (the page then uses browser voices)."""
+    if not TTS.provider():
+        raise HTTPException(503, "No text-to-speech key is set")
+    persona = body.get("persona") if isinstance(body.get("persona"), dict) else {}
+    try:
+        audio = await run_in_threadpool(TTS.speak, str(body.get("text") or ""), persona, body.get("slot") or 0)
+    except Exception as e:  # noqa: BLE001  the page falls back to browser voices
+        raise HTTPException(502, f"Voice service failed: {type(e).__name__}")
+    return Response(audio, media_type="audio/mpeg", headers={"Cache-Control": "no-store"})
 
 
 @app.put("/api/personas")

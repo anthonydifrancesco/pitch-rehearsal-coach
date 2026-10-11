@@ -16,3 +16,13 @@ The RFP, deck and transcripts are stored on Render's servers as well as sent to 
 
 ## Updating
 Push to the repo; Render redeploys. Local settings are unchanged: `run.bat` still works on any PC where you are allowed to install it.
+
+## Realistic voices (optional)
+
+By default the panel uses the voices built into the browser (best in Microsoft Edge with "online voices" ticked).
+For much more natural, accent-matched voices, add one more key in Render > Environment:
+
+- `OPENAI_API_KEY` — OpenAI text-to-speech (model `gpt-4o-mini-tts`). About US$0.015 per minute of speech, so a 40-minute rehearsal with the panel talking for ~8 minutes costs roughly 12 cents. Accent, age and manner of each panel member are steered from their persona.
+- or `ELEVENLABS_API_KEY` — ElevenLabs stock voices chosen by gender, accent and age.
+
+The text the panel says is sent to that vendor, so check with IT. Set `TTS_PROVIDER=off` to switch it off. If the service fails the page falls back to browser voices automatically.

@@ -103,7 +103,7 @@ td{padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:top}
   </div>
   <div class="card">
     <h2>Panel voices</h2>
-    <p class="hint">Each panel member gets a different free voice from your computer. Pick another if you prefer, then press Hear.</p>
+    <p class="hint" id="voiceNote">Each panel member gets a different free voice from your computer. For much more natural voices, use Microsoft Edge and tick the box below. Pick another voice if you prefer, then press Hear.</p>
     <label class="row small" style="margin-bottom:8px"><input type="checkbox" id="online"> Use high-quality online voices if available (Edge: the panel's spoken text goes to Microsoft)</label>
     <div id="voices"></div>
   </div>
@@ -184,7 +184,7 @@ const S = { sid: SID, rid: null, settings: null, slides: [], range: [1, 1], pers
   t0: 0, pausedAt: 0, pausedTotal: 0, paused: false, events: [], asked: [], slide: 1, presenter: 'Presenter',
   speaking: false, wantListen: false, rec: null, mutedUntil: 0, busy: false, lastHeard: 0, lastFinal: 0,
   wordsSince: 0, slideStartAt: Date.now(), slideWords: 0, pending: null, replying: false, slideChanged: false, slideChangedAt: 0, lastCheck: 0, voices: [], voiceMap: {}, auto: false,
-  qaWords: 0, qaResolve: null, dirty: false, ticker: null };
+  tts: '', ttsFails: 0, audio: null, qaWords: 0, qaResolve: null, dirty: false, ticker: null };
 const el = () => S.t0 ? Math.max(0, (Date.now() - S.t0 - S.pausedTotal - (S.paused ? Date.now() - S.pausedAt : 0)) / 1000) : 0;
 const mmss = t => { t = Math.max(0, Math.floor(t)); return String(Math.floor(t / 60)).padStart(2, '0') + ':' + String(t % 60).padStart(2, '0'); };
 async function api(path, opts) {
@@ -247,7 +247,7 @@ function assignVoices() {
   }
 }
 function tuning(p) { const age = +p.voice.age || 40; return { pitch: age >= 52 ? 0.88 : age <= 34 ? 1.08 : 1, rate: age >= 58 ? 0.94 : 1.02 }; }
-function speak(p, text) {
+function speakBrowser(p, text) {
   return new Promise(res => {
     if (!('speechSynthesis' in window)) return res();
     const u = new SpeechSynthesisUtterance(text), v = S.voiceMap[p.id], t = tuning(p);
@@ -258,6 +258,29 @@ function speak(p, text) {
     setTimeout(fin, 30000 + text.length * 120);   // never hang the session on a stuck voice
     speechSynthesis.speak(u);
   });
+}
+/* realistic voices: the server makes the audio (when a TTS key is set); any failure falls back to the browser voice */
+function slotOf(p) { const g = x => String((x.voice || {}).gender || '').toLowerCase().startsWith('f'); return S.personas.filter(x => g(x) === g(p)).findIndex(x => x.id === p.id); }
+function stopSpeech() { try { speechSynthesis.cancel(); } catch (e) {} if (S.audio) { try { S.audio.pause(); } catch (e) {} S.audio = null; if (S.audioDone) S.audioDone(); } }
+async function speakNeural(p, text) {
+  const r = await fetch('/api/tts', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, slot: slotOf(p), persona: { id: p.id, name: p.name, title: p.title, style: p.style, gender: p.voice.gender, age: p.voice.age, accent: p.voice.accent } }) });
+  if (!r.ok) throw new Error('tts ' + r.status);
+  const url = URL.createObjectURL(await r.blob());
+  await new Promise((res, rej) => {
+    const a = new Audio(url); S.audio = a;
+    const done = () => { S.audio = null; S.audioDone = null; URL.revokeObjectURL(url); res(); };
+    S.audioDone = done; a.onended = done; a.onerror = () => { S.audio = null; S.audioDone = null; rej(new Error('audio')); };
+    a.play().catch(rej);
+    setTimeout(done, 45000 + text.length * 120);
+  });
+}
+async function speak(p, text) {
+  if (S.tts && S.ttsFails < 3) {
+    try { await speakNeural(p, text); S.ttsFails = 0; return; }
+    catch (e) { S.ttsFails++; if (S.ttsFails >= 3) banner('warn', 'The realistic voice service is not responding, so the panel is using your browser voices.'); }
+  }
+  return speakBrowser(p, text);
 }
 function renderVoices() {
   $('#voices').innerHTML = S.personas.map(p => {
@@ -420,7 +443,7 @@ function tick() {
 /* ================= pause / finish / Q&A ================= */
 $('#pause').onclick = () => {
   S.paused = !S.paused;
-  if (S.paused) { S.pausedAt = Date.now(); stopRec(); speechSynthesis.cancel(); $('#pause').textContent = 'Resume'; setPhase(S.phase, 'Paused'); }
+  if (S.paused) { S.pausedAt = Date.now(); stopRec(); stopSpeech(); $('#pause').textContent = 'Resume'; setPhase(S.phase, 'Paused'); }
   else { S.pausedTotal += Date.now() - S.pausedAt; $('#pause').textContent = 'Pause'; setPhase(S.phase, S.phase === 'qa' ? 'Q&A' : 'Live', true); S.lastHeard = Date.now(); startRec(); }
 };
 $('#finish').onclick = async () => {
@@ -455,11 +478,11 @@ function listenForAnswer() {
 }
 $('#doneAns').onclick = () => S.qaResolve && S.qaResolve();
 $('#skipQ').onclick = () => S.qaResolve && S.qaResolve();
-$('#endQA').onclick = () => { S.phase = 'qa-end'; S.qaResolve && S.qaResolve(); speechSynthesis.cancel(); finishAndScore(); };
+$('#endQA').onclick = () => { S.phase = 'qa-end'; S.qaResolve && S.qaResolve(); stopSpeech(); finishAndScore(); };
 let scoring = false;
 async function finishAndScore() {
   if (scoring) return; scoring = true;
-  S.wantListen = false; stopRec(); speechSynthesis.cancel(); clearInterval(S.ticker);
+  S.wantListen = false; stopRec(); stopSpeech(); clearInterval(S.ticker);
   setPhase('scoring', 'Scoring'); show('scoring');
   try {
     const sc = await apiLong(`/api/sessions/${S.sid}/rehearsals/${S.rid}/score`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ events: S.events }) });
@@ -543,7 +566,9 @@ async function boot() {
   $('#lvl').textContent = S.settings.interjection;
   $('#presenter').value = (S.settings.presenters && S.settings.presenters[0] && S.settings.presenters[0].name) || 'Presenter';
   $('#startSlide').innerHTML = S.slides.map(s => `<option value="${s.n}" ${s.n === S.range[0] ? 'selected' : ''}>${s.n}. ${esc(s.title.slice(0, 50))}</option>`).join('');
+  try { S.tts = (await api('/api/config')).tts || ''; } catch (e) {}
   S.voices = await loadVoices(); assignVoices(); renderVoices();
+  if (S.tts) $('#voiceNote').innerHTML = `<b>Realistic voices are on</b> (${esc(S.tts === 'openai' ? 'OpenAI' : 'ElevenLabs')}). Each panel member speaks in a natural voice matched to their age, gender and accent. The pickers below are only the backup if that service fails.`;
   const slide = await pollSlide();
   const checks = [
     [SR ? 'ok' : 'bad', SR ? 'Speech recognition is available in this browser.' : 'No speech recognition here. Use Chrome or Edge on your laptop. (You can still type your answers.)'],
