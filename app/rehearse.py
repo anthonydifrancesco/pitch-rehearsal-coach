@@ -46,6 +46,25 @@ def slide_range(settings: dict, total: int):
     return max(1, min(a, total)), max(1, min(b, total))
 
 
+def scope(sess: dict, pr: dict) -> dict:
+    """What is actually being rehearsed. With a partial slide range only the requirements and issues tied to those
+    slides count; everything else belongs to slides that are not being rehearsed today."""
+    total = len(sess["slides"])
+    a, b = slide_range(sess["settings"], total)
+    partial = (a, b) != (1, total)
+    live = {r["id"] for r in pr["requirements"] if not r["ignored"]}
+    if not partial:
+        return {"a": a, "b": b, "total": total, "partial": False, "reqs": live,
+                "gaps": {u["req_id"] for u in pr["unanswered_requirements"]}, "incons": list(pr["inconsistencies"])}
+    covered = set()
+    for sl in pr["slides"]:
+        if a <= sl["n"] <= b:
+            covered.update(sl["covers"])
+    reqs = live & covered
+    incons = [i for i in pr["inconsistencies"] if not i["slides"] or all(a <= n <= b for n in i["slides"])]
+    return {"a": a, "b": b, "total": total, "partial": True, "reqs": reqs, "gaps": set(), "incons": incons}
+
+
 def live_thinking(model: str):
     # Haiku 5.5 accepts thinking disabled (fast, cheap). Other models error on it, so omit there.
     return {"type": "disabled"} if "haiku" in model else None
@@ -94,8 +113,15 @@ def build_context(sess: dict, pr: dict) -> str:
     for p in st.get("personas", []):
         lines.append(f"- {p['id']} | {p['name']}, {p['title']} | {p.get('style', '')} | {p.get('questions', 5)} | "
                      f"{'YES' if p.get('key_decision_maker') else 'no'}")
-    lines += ["", "THE CLIENT'S REQUIREMENTS (from the brief):"]
+    sc = scope(sess, pr)
+    if sc["partial"]:
+        lines += ["", f"IMPORTANT: this session rehearses ONLY slides {a}-{b} of {total}. Slides outside that range do not exist for this "
+                      "session: never ask about them, refer to them, or judge the presenter on them. Only the requirements listed below "
+                      "are relevant today; the rest of the brief belongs to slides that are not being rehearsed."]
+    lines += ["", "THE CLIENT'S REQUIREMENTS" + (" RELEVANT TO THE SLIDES BEING REHEARSED" if sc["partial"] else " (from the brief)") + ":"]
     for r in pr["requirements"]:
+        if sc["partial"] and r["id"] not in sc["reqs"]:
+            continue
         lines.append(f"- {r['id']} [{r['priority']}]{' (OUT OF SCOPE)' if r['ignored'] else ''} {r['text']}")
     lines += ["", "THE DECK (analysis from the pre-read):"]
     for s in pr["slides"]:
@@ -106,11 +132,11 @@ def build_context(sess: dict, pr: dict) -> str:
         lines.append(f"{s['n']}. {titles.get(s['n'], '')} | purpose: {s['purpose']} | key message: {s['key_message']} | "
                      f"pace: {pace} | evidence {s['evidence_strength']}: {s['evidence_note']}"
                      + (f" | likely questions: {qs}" if qs else ""))
-    unans = "; ".join(f"{u['req_id']} ({u['note']})" for u in pr["unanswered_requirements"])
+    unans = "; ".join(f"{u['req_id']} ({u['note']})" for u in pr["unanswered_requirements"] if not sc["partial"] or u["req_id"] in sc["gaps"])
     if unans:
         lines += ["", "KNOWN GAPS: " + unans]
-    if pr["inconsistencies"]:
-        lines += ["KNOWN INCONSISTENCIES: " + "; ".join(i["description"] for i in pr["inconsistencies"])]
+    if sc["incons"]:
+        lines += ["KNOWN INCONSISTENCIES: " + "; ".join(i["description"] for i in sc["incons"])]
     g = (st.get("guidance") or "").strip()
     if g:
         lines += ["", "PRESENTER'S GUIDANCE ON HOW TO ASSESS: " + g[:2000]]
@@ -132,6 +158,7 @@ a requirement being skipped, a risk, or a number that doesn't add up. Otherwise 
 - Let the presenter finish making their point first. Only ask about what they have actually SAID so far; never ask about something \
 the slide shows that they have not yet got to, because they may be about to cover it. If they are mid-explanation, stay silent.
 - Mostly ask about the slide on screen. Occasionally (about one in five) circle back to something from a few slides earlier.
+- If the context says only some slides are being rehearsed, only ever ask about those slides and requirements.
 - Choose the persona whose role and appetite fit. Weight by question appetite, avoid the same person twice in a row, and don't ignore key decision-makers.
 - Never repeat or rephrase a question already asked. If the presenter has just deferred a question ("coming up later"), do not ask it again until that slide.
 - Match tone to difficulty: gentle = curious and polite; brutal = blunt, sceptical, pushes back on vague answers.
@@ -267,6 +294,7 @@ and follow-ups to what the presenter actually said (use the transcript).
 - Do not repeat questions already asked during the pitch. Make them different each run (use the variation token).
 - Spoken style, one or two sentences, under 40 words, in character, tone matched to difficulty. Most important first.
 - Never raise out-of-scope topics.
+- If the context says only some slides are being rehearsed, ask ONLY about those slides and their requirements. Never mention others.
 Reply with ONLY a JSON object: {"questions":[{"persona_id":"<id>","text":"<question>","about_slide":<number>,"why":"<few words>"}]}"""
 
 
@@ -275,12 +303,20 @@ def qa_count(settings: dict) -> int:
     return int(max(3, min(10, round(total / 3))))
 
 
-def qa_questions(client, ctx: str, sess: dict, events: list) -> list:
+def qa_questions(client, ctx: str, sess: dict, events: list, qa_only: bool = False, n: int | None = None) -> list:
     st = sess["settings"]
     titles = {s["n"]: s["title"] for s in sess["slides"]}
-    n = qa_count(st)
-    dyn = (f"Write {n} questions. Variation token: {random.randint(1000, 9999)}.\n\nFULL TRANSCRIPT SO FAR:\n"
-           + (script_lines(events, st, titles) or "(the presenter said very little)") + "\n\nJSON only.")
+    n = max(1, min(12, int(n))) if n else qa_count(st)
+    a, b = slide_range(st, len(sess["slides"]))
+    rng = f"Only ask about slides {a}-{b}: nothing outside that range was rehearsed. " if (a, b) != (1, len(sess["slides"])) else ""
+    if qa_only:
+        dyn = (f"Write {n} questions. Variation token: {random.randint(1000, 9999)}.\n\n{rng}"
+               "This is a QUESTION-TIME-ONLY session: the presenter has NOT pitched. The panel has just seen the deck and now puts its questions: "
+               "thin evidence, unanswered requirements, claims to be proven, risks and the likely questions from the deck analysis. "
+               "Do not refer to anything the presenter said, because they have said nothing yet.\n\nJSON only.")
+    else:
+        dyn = (f"Write {n} questions. Variation token: {random.randint(1000, 9999)}.\n\n{rng}FULL TRANSCRIPT SO FAR:\n"
+               + (script_lines(events, st, titles) or "(the presenter said very little)") + "\n\nJSON only.")
     text, _, _ = ask_text(client, SCORE_MODEL, QA_SYSTEM, _blocks(ctx, dyn), 4000, {"type": "between_tools"})
     j = parse_json(text)
     pers = personas_by_id(st)
@@ -292,11 +328,13 @@ def qa_questions(client, ctx: str, sess: dict, events: list) -> list:
         said = _text(q.get("text")).strip()
         if pid and said:
             nums = _ints([q.get("about_slide")])
+            if nums and not (a <= nums[0] <= b):
+                continue                                  # a question about a slide that was not rehearsed
             out.append({"persona_id": pid, "text": said, "about_slide": nums[0] if nums else None,
                         "why": _text(q.get("why"))})
     if not out:
         raise RuntimeError("The panel did not produce any questions. Try again.")
-    return out[:12]
+    return out[:n]
 
 
 # ---------------------------------------------------------------- timing
@@ -357,6 +395,8 @@ under-delivery. Verdicts: clear, ok, rushed, waffled, skipped (skipped only if t
 - TOP ACTIONS: three to five specific changes to the deck or delivery that would most improve the pitch.
 - PRESENTERS: if more than one presenter spoke, give each a short breakdown; otherwise one entry.
 - Out-of-scope topics are never counted against the presenter.
+- If the context says only some slides were rehearsed, judge ONLY those slides and the requirements listed for them. Requirements and slides outside \
+the range must not appear in your answer and never count against the presenter.
 Call the submit_score tool."""
 
 SCORE_TOOL = {
@@ -395,11 +435,11 @@ SCORE_TOOL = {
 VERDICTS = ["clear", "ok", "rushed", "waffled", "skipped"]
 
 
-def normalise_score(raw: Any, rows: list, sess: dict, pr: dict, minutes: float, timed: bool = True) -> dict:
+def normalise_score(raw: Any, rows: list, sess: dict, pr: dict, minutes: float, timed: bool = True, qa_only: bool = False) -> dict:
     raw = _load(raw)
     if not isinstance(raw, dict):
         raise RuntimeError("The assessment was unreadable. Try again.")
-    in_scope = {r["id"] for r in pr["requirements"] if not r["ignored"]}
+    in_scope = scope(sess, pr)["reqs"]
     bc = _load(raw.get("brief_coverage")) or {}
     items = []
     for i in _dicts(bc.get("items")):
@@ -439,7 +479,11 @@ def normalise_score(raw: Any, rows: list, sess: dict, pr: dict, minutes: float, 
         for s in slides:
             s["seconds"], s["wpm"] = None, None
     cov_i, gut_i = int(round(cov)), int(round(clamp(gut.get("score"), 0, 100, 0)))
-    if timed:
+    if qa_only:                                     # no pitch was given: only questions and gut feel can be judged
+        items, slides, delivery, timed = [], [], 0, False
+        calc = round(0.6 * q_score + 0.4 * gut_i)
+        weights = {"questions": 0.6, "gut": 0.4}
+    elif timed:
         calc = round(WEIGHTS["coverage"] * cov_i + WEIGHTS["gut"] * gut_i + WEIGHTS["questions"] * q_score + WEIGHTS["delivery"] * delivery)
         weights = WEIGHTS
     else:
@@ -449,21 +493,21 @@ def normalise_score(raw: Any, rows: list, sess: dict, pr: dict, minutes: float, 
     pres = [{"name": _text(p.get("name")), "slides": _text(p.get("slides")), "strengths": _lines(p.get("strengths")),
              "improve": _lines(p.get("improve"))} for p in _dicts(raw.get("presenters"))]
     return {
-        "brief_coverage": {"score": cov_i, "summary": _text(bc.get("summary")), "items": items},
+        "brief_coverage": {"score": None if qa_only else cov_i, "summary": "" if qa_only else _text(bc.get("summary")), "items": items},
         "gut_feel": {"score": gut_i, "rationale": _text(gut.get("rationale"))},
         "question_handling": {"score": q_score, "items": qitems},
         "delivery_score": delivery if timed else None,
         "slides": slides,
-        "total": round((cov_i + gut_i) / 2),
+        "total": round((q_score + gut_i) / 2) if qa_only else round((cov_i + gut_i) / 2),
         "win_likelihood": {"panel_read_pct": int(clamp(wl.get("panel_read_pct"), 0, 100, 0)),
                            "panel_rationale": _text(wl.get("panel_rationale")), "calculated_pct": int(calc)},
         "top_actions": _lines(raw.get("top_actions")),
         "presenters": pres,
-        "meta": {"minutes": round(minutes, 1) if timed else None, "weights": weights, "timed": timed},
+        "meta": {"minutes": round(minutes, 1) if timed else None, "weights": weights, "timed": timed, "qa_only": qa_only},
     }
 
 
-def score(client, ctx: str, sess: dict, pr: dict, events: list, debug_path=None, note: str = "", timed: bool = True) -> dict:
+def score(client, ctx: str, sess: dict, pr: dict, events: list, debug_path=None, note: str = "", timed: bool = True, qa_only: bool = False) -> dict:
     st = sess["settings"]
     titles = {s["n"]: s["title"] for s in sess["slides"]}
     rows = timing_rows(sess, pr, events)
@@ -479,6 +523,10 @@ def score(client, ctx: str, sess: dict, pr: dict, events: list, debug_path=None,
     else:
         table = "\n".join(f"slide {r['n']} ({r['title'][:40]}): {r['words']} words by the presenters" for r in rows)
         head = "WORDS SPOKEN PER SLIDE (there is no usable timing; judge content only):\n"
+    if qa_only:
+        note = ("This was a QUESTION-TIME-ONLY session: the presenter did not pitch; the transcript is the panel's questions and the presenter's answers. "
+                "Judge only QUESTION HANDLING and GUT FEEL (do these answers reassure this panel?), plus win likelihood and top actions. "
+                "For brief_coverage return score 0 and no items; for slides return an empty array.\n\n" + note)
     dyn = ((note + "\n\n" if note else "") + head + table
            + "\n\nFULL TRANSCRIPT:\n" + (script_lines(events, st, titles) or "(no speech recorded)")
            + "\n\nAssess now by calling submit_score.")
@@ -490,4 +538,4 @@ def score(client, ctx: str, sess: dict, pr: dict, events: list, debug_path=None,
             debug_path.write_text(json.dumps(raw, indent=2, default=str), encoding="utf-8")
         except Exception:
             pass
-    return normalise_score(raw, rows, sess, pr, end_t / 60.0, timed)
+    return normalise_score(raw, rows, sess, pr, end_t / 60.0, timed, qa_only)

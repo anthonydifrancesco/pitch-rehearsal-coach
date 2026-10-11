@@ -602,10 +602,12 @@ async def _reh_qa(sid: str, rid: str, body: dict):
     sess = _with_preread(sid)
     reh = _reh_read(sid, rid)
     reh["events"] = body.get("events", reh["events"])
+    if body.get("qa_only"):
+        reh["mode"] = "qa_only"
     ctx = R.build_context(sess, sess["preread"])
 
     def run():
-        return R.qa_questions(get_client(), ctx, sess, reh["events"])
+        return R.qa_questions(get_client(), ctx, sess, reh["events"], bool(body.get("qa_only")), body.get("n"))
 
     try:
         qs = await run_in_threadpool(run)
@@ -635,7 +637,8 @@ async def _reh_score(sid: str, rid: str, body: dict):
     note = PP.score_note(past) if past else ""
 
     def run():
-        return R.score(get_client(), ctx, sess, sess["preread"], reh["events"], dbg, note, not (past or {}).get("timing_estimated", False))
+        return R.score(get_client(), ctx, sess, sess["preread"], reh["events"], dbg, note, not (past or {}).get("timing_estimated", False),
+                       reh.get("mode") == "qa_only" or bool(body.get("qa_only")))
 
     try:
         sc = await run_in_threadpool(run)

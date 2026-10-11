@@ -77,6 +77,12 @@ td{padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:top}
 .b-partial,.b-rushed,.b-waffled{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
 .b-no,.b-skipped{background:color-mix(in srgb,var(--bad) 15%,transparent);color:var(--bad)}
 #typed{flex:1;min-width:0}
+.stypes{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px;margin:8px 0 4px}
+.stype{display:block;border:1px solid var(--line);border-radius:12px;padding:10px 12px;cursor:pointer;background:var(--bg)}
+.stype span{display:block;margin-left:24px;font-size:13px;color:var(--muted)}
+.stype:has(input:checked){border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.stype input{margin-right:6px}
+body.qaonly .slidecard .deckstrip,body.qaonly .slidecard #prev,body.qaonly .slidecard #next,body.qaonly #slideSrc{display:none}
 </style>
 <link rel="icon" href="data:,"><link rel="stylesheet" href="/static/theme.css">
 </head>
@@ -109,9 +115,18 @@ td{padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:top}
   </div>
   <div class="card">
     <h2>This rehearsal</h2>
-    <div class="row">
+    <div class="row" style="margin-bottom:10px"><label>Rehearse slides <input type="number" id="rFrom" min="1" style="width:70px"> to <input type="number" id="rTo" min="1" style="width:70px"></label>
+      <span class="muted small" id="rangeMsg">Questions and scoring cover only these slides.</span></div>
+    <label style="margin-bottom:0">Session type</label>
+    <div class="stypes">
+      <label class="stype"><input type="radio" name="stype" value="full" checked><b>Full rehearsal</b><span>Present with the panel interjecting, then questions at the end.</span></label>
+      <label class="stype"><input type="radio" name="stype" value="quiet"><b>Pitch without interruptions</b><span>Present straight through. All the questions come at the end.</span></label>
+      <label class="stype"><input type="radio" name="stype" value="qa"><b>Question time only</b><span>Skip the pitch. The panel questions you on the slides in your range.</span></label>
+    </div>
+    <div class="row hidden" id="qaN" style="margin:6px 0"><label>How many questions? <select id="qaCount"><option>3</option><option>5</option><option selected>8</option><option>10</option><option>12</option></select></label></div>
+    <div class="row" style="margin-top:10px">
       <label>Your name <input type="text" id="presenter" style="width:160px"></label>
-      <label>Start on slide <select id="startSlide"></select></label>
+      <label id="startWrap">Start on slide <select id="startSlide"></select></label>
       <label class="row small"><input type="checkbox" id="cue"> Show the slide's key message as a cue</label>
     </div>
     <p class="hint" style="margin-top:12px">Open your deck in PowerPoint and start the slide show. Keep this tab open in the background. The panel follows your slides and listens. Interjection setting: <b id="lvl"></b>/10.</p>
@@ -331,22 +346,26 @@ function onSpeech(text) {
 }
 /* The presenter may ask the panel a question back before answering ("do you mean year one or the whole term?").
    Short replies right after a panel question are checked; a real clarification gets an in-character answer. */
-const CLARIFY_HINT = /\?|^(sorry|so |just to|when you say|do you mean|are you|is that|can you|could you|what do you|which|how do you mean|you mean|by that|um,? (do|are|is|what|which))/i;
+const CLARIFY_HINT = /\?|^(sorry|so |just to|when you say|do you mean|are you|is that|can you|could you|what do you|what('| i)s|which|how do you mean|you mean|by that|um,? |actually|just checking|before i|could i|can i|would that|does that|is this|is it|are we|by .* do you|repeat|say that again|what was|didn't (catch|hear))/i;
 async function maybeClarify(text, wc) {
-  const p = S.pending; if (!p || S.replying || S.paused) return;
-  if (Date.now() - p.at > 45000 || wc > 30 || p.count >= 2 || !CLARIFY_HINT.test(text.trim())) { if (wc > 30 || Date.now() - p.at > 45000) S.pending = null; return; }
-  S.replying = true; S.busy = true; thinking(true);
+  const p = S.pending; if (!p || S.paused) return;
+  if (S.replying) { S.clarQ = [text, wc]; return; }                                  // a check is already in flight: look at this one right after
+  if (Date.now() - p.at > 60000 || wc > 40) { S.pending = null; return; }           // a real answer (long) or too late: stop listening for clarifications
+  if (p.count >= 4 || (p.checks || 0) >= 6 || (wc > 18 && !CLARIFY_HINT.test(text.trim()))) return;
+  p.checks = (p.checks || 0) + 1;        // short utterances are always checked; longer ones only if they sound like a question
+  S.replying = true; S.busy = true; let clar = false;
   try {
     const now = el();
     const r = await post(`/api/sessions/${S.sid}/rehearsals/${S.rid}/reply`, { persona_id: p.pid, question: p.text, said: text, slide: S.slide,
       recent: S.events.filter(e => e.t >= now - 150) });
-    if (r.clarifying && S.pending === p) { p.count++; thinking(false); await panelSpeaks(r.persona_id, r.text, 'room', S.slide, 'reply'); p.at = Date.now(); }
-    else if (!r.clarifying) { S.pending = null; }
+    if (r.clarifying && S.pending === p) { clar = true; p.count++; await panelSpeaks(r.persona_id, r.text, 'room', S.slide, 'reply'); p.at = Date.now(); }
+    /* not a clarification: keep listening, because a clarifying question can still follow a short answer or 'good question' */
   } catch (e) { /* ignore: carry on as if it was an answer */ }
-  finally { S.replying = false; S.busy = S.phase === 'qa'; thinking(false); if (S.phase === 'qa') { S.qaWords = 0; S.lastHeard = Date.now(); } }
+  finally { S.replying = false; S.busy = S.phase === 'qa'; if (clar) S.lastCheck = Date.now(); if (S.phase === 'qa' && clar) { S.qaWords = 0; S.lastHeard = Date.now(); }
+    const q = S.clarQ; S.clarQ = null; if (q) maybeClarify(q[0], q[1]); }
 }
 function setSlide(n, src) {
-  n = Math.max(1, Math.min(S.slides.length, n)); if (n === S.slide && src !== 'init') return;
+  n = Math.max(S.range[0], Math.min(S.range[1], n)); if (n === S.slide && src !== 'init') return;
   S.slide = n; const sl = S.slides[n - 1] || {};
   $('#sNum').textContent = n; renderStrip(); $('#sTitle').textContent = sl.title || '';
   $('#sPace').textContent = (sl.pacing || 'normal') + ' pace'; $('#sPace').className = 'chip pace-' + (sl.pacing || 'normal');
@@ -369,7 +388,8 @@ async function pollSlide() {
     S.auto = !!j.available;
     $('#slideSrc').textContent = j.available ? `PowerPoint linked (${j.mode === 'slideshow' ? 'slide show' : 'editing view'}) · slide ${j.slide}${j.total ? ' of ' + j.total : ''}` : 'Manual slides: use the buttons or arrow keys. ' + (j.reason || '');
     if (j.available && j.total && S.slides.length && j.total !== S.slides.length) $('#slideSrc').textContent += ` · WARNING: PowerPoint has ${j.total} slides but the analysed deck has ${S.slides.length}`;
-    if (j.available && S.phase === 'pitch' && j.slide !== S.slide && j.slide >= 1 && j.slide <= S.slides.length) setSlide(j.slide, 'auto');
+    if (j.available && S.phase === 'pitch' && j.slide !== S.slide && j.slide >= S.range[0] && j.slide <= S.range[1]) setSlide(j.slide, 'auto');
+    if (j.available && (j.slide < S.range[0] || j.slide > S.range[1]) && S.range[1] - S.range[0] + 1 < S.slides.length) $('#slideSrc').textContent += ` · PowerPoint is on slide ${j.slide}, outside your rehearsal range (${S.range[0]}-${S.range[1]})`;
     return j;
   } catch (e) { return { available: false, reason: e.message }; }
 }
@@ -446,25 +466,27 @@ $('#pause').onclick = () => {
   if (S.paused) { S.pausedAt = Date.now(); stopRec(); stopSpeech(); $('#pause').textContent = 'Resume'; setPhase(S.phase, 'Paused'); }
   else { S.pausedTotal += Date.now() - S.pausedAt; $('#pause').textContent = 'Pause'; setPhase(S.phase, S.phase === 'qa' ? 'Q&A' : 'Live', true); S.lastHeard = Date.now(); startRec(); }
 };
-$('#finish').onclick = async () => {
-  if (S.phase !== 'pitch') return;
+async function runQA(qaOnly) {
   S.phase = 'qa'; S.busy = true; setPhase('qa', 'Q&A', true); thinking(true);
   $('#finish').classList.add('hidden'); $('#pause').classList.add('hidden'); $('#panelOn').parentElement.classList.add('hidden'); $('#liveIntWrap').classList.add('hidden');
   banner('info', '<span class="spin"></span>The panel is conferring on its questions…');
   try {
-    const { questions } = await apiLong(`/api/sessions/${S.sid}/rehearsals/${S.rid}/qa`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ events: S.events }) });
-    banner('info', 'Question time. Answer out loud; press <b>Done answering</b> (or pause for a few seconds) to move on.');
+    const { questions } = await apiLong(`/api/sessions/${S.sid}/rehearsals/${S.rid}/qa`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ events: S.events, qa_only: !!qaOnly, n: qaOnly ? +$('#qaCount').value : undefined }) });
+    banner('info', 'Question time. Answer out loud; press <b>Done answering</b> (or pause for a few seconds) to move on. You can ask the panel to clarify first.');
     $('#doneAns').classList.remove('hidden'); $('#skipQ').classList.remove('hidden'); $('#endQA').classList.remove('hidden');
     thinking(false);
     for (let i = 0; i < questions.length && S.phase === 'qa'; i++) {
-      const q = questions[i]; banner('info', `Question ${i + 1} of ${questions.length}. Answer out loud, then press <b>Done answering</b>.`);
+      const q = questions[i]; banner('info', `Question ${i + 1} of ${questions.length}. Answer out loud, then press <b>Done answering</b>. You can ask the panel to clarify first.`);
+      if (q.about_slide) setSlide(q.about_slide, 'qa');
       await panelSpeaks(q.persona_id, q.text, 'room', q.about_slide, 'qa');
       await listenForAnswer();
     }
   } catch (e) { banner('bad', 'Could not get the Q&A questions: ' + esc(e.message) + ' You can still score what you have.'); $('#endQA').classList.remove('hidden'); }
   finally { thinking(false); S.busy = false; }
   if (S.phase === 'qa') await finishAndScore();
-};
+}
+$('#finish').onclick = () => { if (S.phase === 'pitch') runQA(false); };
 function listenForAnswer() {
   return new Promise(res => {
     S.qaWords = 0; S.lastHeard = Date.now(); const start = Date.now();
@@ -485,7 +507,7 @@ async function finishAndScore() {
   S.wantListen = false; stopRec(); stopSpeech(); clearInterval(S.ticker);
   setPhase('scoring', 'Scoring'); show('scoring');
   try {
-    const sc = await apiLong(`/api/sessions/${S.sid}/rehearsals/${S.rid}/score`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ events: S.events }) });
+    const sc = await apiLong(`/api/sessions/${S.sid}/rehearsals/${S.rid}/score`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ events: S.events, qa_only: S.qaOnly }) });
     renderResults(sc, S.rid, S.slides);
   } catch (e) {
     $('#scoring').innerHTML = `<div class="card"><div class="banner bad">Scoring failed: ${esc(e.message)}</div><p class="muted small">Your transcript is saved. Try again, or open it from the pre-read page.</p><button class="primary" onclick="location.reload()">Reload</button></div>`;
@@ -500,28 +522,29 @@ const dial = (v, label) => {
 const bar = v => `<div class="bar"><i style="width:${Math.max(0, Math.min(100, v))}%"></i></div>`;
 function renderResults(sc, rid, slides) {
   setPhase('done', 'Results'); $('#clock').classList.add('hidden'); show('results');
-  const w = sc.win_likelihood;
+  const w = sc.win_likelihood, qo = !!(sc.meta && sc.meta.qa_only), part = S.range && S.slides.length && (S.range[1] - S.range[0] + 1 < S.slides.length);
   $('#results').innerHTML = `
-  <div class="card"><div class="row" style="justify-content:space-between"><h2 style="font-size:18px;margin:0">Rehearsal results</h2>
+  <div class="card"><div class="row" style="justify-content:space-between"><h2 style="font-size:18px;margin:0">${qo ? 'Question time results' : 'Rehearsal results'}</h2>
     <div class="row"><a class="btn" href="/api/sessions/${S.sid}/rehearsals/${rid}/export.docx">Download report (.docx)</a>
     <a class="btn" href="/rehearse?session=${S.sid}">Rehearse again</a><a class="btn" href="/">Back to pre-read</a></div></div>
+    ${part ? `<p class="small muted" style="margin:10px 0 0">Judged on slides ${S.range[0]}-${S.range[1]} only. Requirements and slides outside that range are not counted.</p>` : ''}
     <div class="dials">
-      ${dial(sc.brief_coverage.score, 'Brief coverage')}${dial(sc.gut_feel.score, 'Gut feel')}${dial(sc.total, 'Total')}${dial(sc.question_handling.score, 'Question handling')}${dial(sc.delivery_score, sc.delivery_score == null ? 'Delivery (no timestamps)' : 'Delivery')}</div>
-    <div class="small muted" style="font-family:var(--mono);font-size:10.5px;letter-spacing:1.2px;text-transform:uppercase">Slide-by-slide verdicts</div>
-    <div class="verdicts">${sc.slides.map(x => `<div class="vs ${esc(x.verdict)}" title="${esc(x.n + '. ' + x.title + ': ' + x.verdict)}"><b>${x.n}</b></div>`).join('')}</div>
+      ${sc.meta && sc.meta.qa_only ? '' : dial(sc.brief_coverage.score, 'Brief coverage')}${dial(sc.gut_feel.score, 'Gut feel')}${dial(sc.total, 'Total')}${dial(sc.question_handling.score, 'Question handling')}${sc.meta && sc.meta.qa_only ? '' : dial(sc.delivery_score, sc.delivery_score == null ? 'Delivery (no timestamps)' : 'Delivery')}</div>
+    ${qo ? '' : `<div class="small muted" style="font-family:var(--mono);font-size:10.5px;letter-spacing:1.2px;text-transform:uppercase">Slide-by-slide verdicts</div>
+    <div class="verdicts">${sc.slides.map(x => `<div class="vs ${esc(x.verdict)}" title="${esc(x.n + '. ' + x.title + ': ' + x.verdict)}"><b>${x.n}</b></div>`).join('')}</div>`}
     <h2>Win likelihood</h2>
     <div class="row" style="gap:30px"><div style="flex:1;min-width:220px"><div class="small muted">Panel's independent read</div><b style="font-size:26px">${w.panel_read_pct}%</b>${bar(w.panel_read_pct)}</div>
     <div style="flex:1;min-width:220px"><div class="small muted">Calculated from the scores</div><b style="font-size:26px">${w.calculated_pct}%</b>${bar(w.calculated_pct)}
-    <div class="small muted">${sc.delivery_score == null ? '0.41 coverage + 0.35 gut + 0.24 questions (no delivery score without timestamps)' : '0.35 coverage + 0.30 gut + 0.20 questions + 0.15 delivery'}</div></div></div>
+    <div class="small muted">${qo ? '0.6 questions + 0.4 gut (no pitch was given)' : sc.delivery_score == null ? '0.41 coverage + 0.35 gut + 0.24 questions (no delivery score without timestamps)' : '0.35 coverage + 0.30 gut + 0.20 questions + 0.15 delivery'}</div></div></div>
     <p>${esc(w.panel_rationale)}</p></div>
   <div class="card"><h2>Top actions</h2><ol>${sc.top_actions.map(a => `<li>${esc(a)}</li>`).join('')}</ol></div>
-  <div class="card"><h2>Brief coverage</h2><p class="muted small">${esc(sc.brief_coverage.summary)}</p><div class="tw"><table><thead><tr><th>Req</th><th>Met?</th><th>Evidence from your pitch</th><th>Note</th></tr></thead><tbody>
-    ${sc.brief_coverage.items.map(i => `<tr><td>${esc(i.req_id)}</td><td><span class="badge b-${esc(i.met)}">${esc(i.met)}</span></td><td>${esc(i.evidence)}</td><td>${esc(i.note)}</td></tr>`).join('')}</tbody></table></div></div>
+  ${qo ? '' : `<div class="card"><h2>Brief coverage</h2><p class="muted small">${esc(sc.brief_coverage.summary)}</p><div class="tw"><table><thead><tr><th>Req</th><th>Met?</th><th>Evidence from your pitch</th><th>Note</th></tr></thead><tbody>
+    ${sc.brief_coverage.items.map(i => `<tr><td>${esc(i.req_id)}</td><td><span class="badge b-${esc(i.met)}">${esc(i.met)}</span></td><td>${esc(i.evidence)}</td><td>${esc(i.note)}</td></tr>`).join('')}</tbody></table></div></div>`}
   <div class="card"><h2>Gut feel</h2><p>${esc(sc.gut_feel.rationale)}</p></div>
   <div class="card"><h2>Question handling</h2><div class="tw"><table><thead><tr><th>Asked by</th><th>Question</th><th>How you answered</th><th>Rating</th><th>Note</th></tr></thead><tbody>
     ${sc.question_handling.items.map(i => `<tr><td>${esc(i.asker)}</td><td>${esc(i.question)}</td><td>${esc(i.answer_summary)}</td><td>${i.rating}</td><td>${esc(i.note)}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">No questions were asked.</td></tr>'}</tbody></table></div></div>
-  <div class="card"><h2>${sc.delivery_score == null ? 'Slide-by-slide content' : 'Slide-by-slide delivery'}</h2><p class="muted small">${sc.delivery_score == null ? 'Judged on what was said about each slide. Timing is not assessed because the recording has no timestamps.' : "Judged against each slide's intended pace: a deliberately quick slide isn't marked down for brevity."}</p><div class="tw"><table><thead><tr><th>#</th><th>Slide</th><th>Intended</th><th>${sc.delivery_score == null ? '' : 'Time'}</th><th>Words</th><th>Verdict</th><th>Rating</th><th>Note</th></tr></thead><tbody>
-    ${sc.slides.map(s => `<tr><td>${s.n}</td><td>${esc(s.title)}</td><td class="pace-${esc(s.pacing)}">${esc(s.pacing)}</td><td>${s.seconds == null ? '' : mmss(s.seconds)}</td><td>${s.words}</td><td><span class="badge b-${esc(s.verdict)}">${esc(s.verdict)}</span></td><td>${s.rating}</td><td>${esc(s.note)}</td></tr>`).join('')}</tbody></table></div></div>
+  ${qo ? '' : `<div class="card"><h2>${sc.delivery_score == null ? 'Slide-by-slide content' : 'Slide-by-slide delivery'}</h2><p class="muted small">${sc.delivery_score == null ? 'Judged on what was said about each slide. Timing is not assessed because the recording has no timestamps.' : "Judged against each slide's intended pace: a deliberately quick slide isn't marked down for brevity."}</p><div class="tw"><table><thead><tr><th>#</th><th>Slide</th><th>Intended</th><th>${sc.delivery_score == null ? '' : 'Time'}</th><th>Words</th><th>Verdict</th><th>Rating</th><th>Note</th></tr></thead><tbody>
+    ${sc.slides.map(s => `<tr><td>${s.n}</td><td>${esc(s.title)}</td><td class="pace-${esc(s.pacing)}">${esc(s.pacing)}</td><td>${s.seconds == null ? '' : mmss(s.seconds)}</td><td>${s.words}</td><td><span class="badge b-${esc(s.verdict)}">${esc(s.verdict)}</span></td><td>${s.rating}</td><td>${esc(s.note)}</td></tr>`).join('')}</tbody></table></div></div>`}
   ${sc.presenters.length ? `<div class="card"><h2>Per presenter</h2>${sc.presenters.map(p => `<h3 style="font-size:14px;margin:12px 0 4px">${esc(p.name)} <span class="muted small">slides ${esc(p.slides || '–')}</span></h3>
     <ul>${p.strengths.map(x => `<li>Strength: ${esc(x)}</li>`).join('')}${p.improve.map(x => `<li>Improve: ${esc(x)}</li>`).join('')}</ul>`).join('')}</div>` : ''}`;
   $('#results').classList.add('cards-fade');
@@ -537,9 +560,17 @@ async function start() {
     const startSlide = +$('#startSlide').value;
     $('#liveInt').value = S.settings.interjection; $('#liveIntV').textContent = S.settings.interjection;
     $('#liveInt').oninput = () => { $('#liveIntV').textContent = $('#liveInt').value; };
+    const stype = document.querySelector('input[name=stype]:checked').value; S.qaOnly = stype === 'qa';
+    if (stype === 'quiet') { $('#liveInt').value = 0; $('#liveIntV').textContent = 0; $('#panelOn').checked = false; $('#liveIntWrap').classList.add('hidden'); $('#panelOn').parentElement.classList.add('hidden'); }
     members(); show('liveWrap'); $('#clock').classList.remove('hidden');
     S.t0 = Date.now(); S.phase = 'pitch'; setPhase('pitch', 'Live', true);
-    $('#sOf').textContent = 'of ' + S.slides.length; S.slide = 0; setSlide(startSlide, 'init');
+    $('#sOf').textContent = 'of ' + S.slides.length; S.slide = 0; setSlide(S.qaOnly ? S.range[0] : startSlide, 'init');
+    if (S.qaOnly) {
+      document.body.classList.add('qaonly'); S.slides.length && ($('#sTitle').textContent = `Question time on slides ${S.range[0]}-${S.range[1]}`);
+      S.wantListen = true; S.lastHeard = Date.now(); S.lastCheck = Date.now(); startRec(); S.ticker = setInterval(tick, 1000);
+      if (!SR) banner('warn', 'This browser has no speech recognition (use Chrome or Edge). You can type your answers in the box.');
+      runQA(true); return;
+    }
     S.wantListen = true; S.lastHeard = Date.now(); S.lastCheck = Date.now(); startRec();
     S.ticker = setInterval(tick, 1000); setInterval(pollSlide, 900);
     if (!SR) banner('warn', 'This browser has no speech recognition (use Chrome or Edge). You can type what you would say in the box below.');
@@ -552,7 +583,7 @@ async function boot() {
   // view mode: show an earlier rehearsal's results
   if (qs.get('view')) {
     const r = await api(`/api/sessions/${SID}/rehearsals/${qs.get('view')}`); const s = await api(`/api/sessions/${SID}`);
-    show('results'); S.slides = s.slides; if (!r.score) { $('#results').innerHTML = '<div class="card">This rehearsal was not scored.</div>'; return; }
+    show('results'); S.slides = s.slides; { const r = (s.settings && s.settings.range) || {}; S.range = [r.from || 1, r.to || s.slides.length]; } if (!r.score) { $('#results').innerHTML = '<div class="card">This rehearsal was not scored.</div>'; return; }
     renderResults(r.score, r.id, s.slides);
     if (r.past) $('#results').insertAdjacentHTML('afterbegin', `<div class="banner info">Real pitch assessed from a transcript${r.past.outcome ? ' · actual outcome: <b>' + esc(r.past.outcome) + '</b>' : ''}.
       The "panel" in this report is the real client. ${r.past.timing_estimated ? 'The recording had no timestamps, so timing and delivery are not scored.' : ''}</div>`);
@@ -562,11 +593,12 @@ async function boot() {
     const j = await post(`/api/sessions/${SID}/rehearsals`);
     S.rid = j.rid; S.readyScale = j.ready_scale || 1; S.settings = j.settings; S.slides = j.slides; S.range = j.range; S.personas = j.settings.personas || [];
   } catch (e) { $('#pre').innerHTML = `<div class="card"><div class="banner bad">${esc(e.message)}</div><a href="/">Back</a></div>`; return; }
-  $('#pitchName').textContent = (S.settings.title || 'Untitled pitch') + ` · ${S.slides.length} slides · panel of ${S.personas.length}`;
+  $('#pitchName').textContent = (S.settings.title || 'Untitled pitch') + ` · ${S.slides.length} slides` + (S.range[1] - S.range[0] + 1 < S.slides.length ? ` (rehearsing slides ${S.range[0]}-${S.range[1]} only)` : '') + ` · panel of ${S.personas.length}`;
   $('#lvl').textContent = S.settings.interjection;
   $('#presenter').value = (S.settings.presenters && S.settings.presenters[0] && S.settings.presenters[0].name) || 'Presenter';
-  $('#startSlide').innerHTML = S.slides.map(s => `<option value="${s.n}" ${s.n === S.range[0] ? 'selected' : ''}>${s.n}. ${esc(s.title.slice(0, 50))}</option>`).join('');
+  $('#startSlide').innerHTML = S.slides.filter(s => s.n >= S.range[0] && s.n <= S.range[1]).map(s => `<option value="${s.n}" ${s.n === S.range[0] ? 'selected' : ''}>${s.n}. ${esc(s.title.slice(0, 50))}</option>`).join('');
   try { S.tts = (await api('/api/config')).tts || ''; } catch (e) {}
+  applyRange(S.range[0], S.range[1]);
   S.voices = await loadVoices(); assignVoices(); renderVoices();
   if (S.tts) $('#voiceNote').innerHTML = `<b>Realistic voices are on</b> (${esc(S.tts === 'openai' ? 'OpenAI' : 'ElevenLabs')}). Each panel member speaks in a natural voice matched to their age, gender and accent. The pickers below are only the backup if that service fails.`;
   const slide = await pollSlide();
@@ -585,6 +617,24 @@ $('#micTest').onclick = () => {
   r.onerror = e => { $('#micOut').textContent = 'Microphone problem: ' + e.error + (e.error === 'not-allowed' ? ' (allow the microphone in the address bar)' : ''); };
   r.start(); setTimeout(() => { try { r.stop(); } catch (e) {} }, 8000);
 };
+function applyRange(a, b) {
+  const n = S.slides.length; a = Math.max(1, Math.min(n, a || 1)); b = Math.max(a, Math.min(n, b || n));
+  S.range = [a, b]; S.settings.range = { from: a === 1 ? null : a, to: b === n ? null : b };
+  $('#rFrom').value = a; $('#rTo').value = b;
+  $('#startSlide').innerHTML = S.slides.filter(x => x.n >= a && x.n <= b).map(x => `<option value="${x.n}" ${x.n === a ? 'selected' : ''}>${x.n}. ${esc(x.title.slice(0, 50))}</option>`).join('');
+  $('#pitchName').textContent = (S.settings.title || 'Untitled pitch') + ` · ${n} slides` + (b - a + 1 < n ? ` (rehearsing slides ${a}-${b} only)` : '') + ` · panel of ${S.personas.length}`;
+}
+async function saveRange() {
+  applyRange(+$('#rFrom').value, +$('#rTo').value);
+  try { await api(`/api/sessions/${S.sid}/settings`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(S.settings) }); $('#rangeMsg').textContent = `Saved: slides ${S.range[0]}-${S.range[1]}. Questions and scoring cover only these slides.`; }
+  catch (e) { $('#rangeMsg').textContent = 'Could not save the range: ' + e.message; }
+}
+$('#rFrom').onchange = $('#rTo').onchange = saveRange;
+document.querySelectorAll('input[name=stype]').forEach(r => r.onchange = () => {
+  const t = document.querySelector('input[name=stype]:checked').value;
+  $('#qaN').classList.toggle('hidden', t !== 'qa'); $('#startWrap').classList.toggle('hidden', t === 'qa');
+  $('#start').textContent = t === 'qa' ? 'Start question time' : 'Start rehearsal';
+});
 $('#start').onclick = start;
 boot();
 </script>

@@ -36,7 +36,7 @@ finance, operations, skeptic, insights, channel_expert. Prefer questions that pr
 Do not ask generic questions.
 - IGNORED TOPICS: the user may list topics to leave out of scope for this rehearsal. Still list matching requirements with ignored=true, \
 but do not count them as unanswered, thin evidence, inconsistencies, or questions.
-- You can only see text, not images or charts. If a slide is mostly visual, say what you cannot assess in evidence_note rather than guessing.
+- Unless slide images are attached, you can only see text. If a slide is mostly visual and you cannot see it, say what you cannot assess in evidence_note rather than guessing.
 - Be concise: one or two sentences per field.
 Deliver your answer ONLY by calling the submit_preread tool with the complete result. Do not write the answer as prose."""
 

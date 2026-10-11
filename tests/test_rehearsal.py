@@ -216,3 +216,55 @@ assert c.post(f"/api/sessions/{sid}/rehearsals/{rid}/review").status_code == 400
 from app.review import verdict
 assert verdict("strong", "delivered") == "covered" and verdict("thin", "delivered") == "conversation_only" and verdict("partial", "not_discussed") == "deck_only" and verdict("none", "not_discussed") == "gap" and verdict("partial", "delivered") == "covered" and verdict("strong", "partial") == "partly"
 print("REVIEW OK")
+
+# ================= slide range scoping, question-time-only, clarifications =================
+sess_r = m._with_preread(sid); sess_r["settings"] = dict(sess_r["settings"], range={"from": 1, "to": 2})
+ctx_r = R.build_context(sess_r, sess_r["preread"])
+assert "ONLY slides 1-2 of 3" in ctx_r and "R1 [must]" in ctx_r and "R3 [must]" not in ctx_r and "KNOWN GAPS" not in ctx_r and "3. " not in ctx_r.split("THE DECK")[1]
+assert "R3 [must]" in ctx and "ONLY slides" not in ctx                                  # full range: unchanged
+sc_r = R.scope(sess_r, sess_r["preread"]); assert sc_r["reqs"] == {"R1"} and sc_r["partial"] and sc_r["gaps"] == set()
+sess_full = m._with_preread(sid); assert R.scope(sess_full, sess_full["preread"])["reqs"] == {"R1", "R3"}
+# Q&A: a question about an unrehearsed slide is dropped; the prompt names the range
+fc2 = FakeClient()
+class QAFake(FakeClient):
+    def stream(self, **kw):
+        if kw["system"].startswith("You are the client panel at the end"):
+            calls.append(kw)
+            return Stream(text_msg(json.dumps({"questions": [{"persona_id": "finance", "text": "in range?", "about_slide": 2}, {"persona_id": "skeptic", "text": "out of range?", "about_slide": 3}]})))
+        return super().stream(**kw)
+qs = R.qa_questions(QAFake(), ctx_r, sess_r, [])
+assert [q["text"] for q in qs] == ["in range?"] and "Only ask about slides 1-2" in calls[-1]["messages"][0]["content"][1]["text"]
+qs = R.qa_questions(QAFake(), ctx, sess_full, [], n=1); assert len(qs) == 1                 # n caps the count
+# scoring judges only the rehearsed slides' requirements (R3 is not backfilled as "not met")
+raw_sc = {"brief_coverage": {"score": 50, "items": [{"req_id": "R1", "met": "yes", "evidence": "e", "note": "n"}]}, "gut_feel": {"score": 60, "rationale": "r"},
+          "question_handling": {"score": 0, "items": [{"asker": "Graham", "question": "q", "answer_summary": "a", "rating": 70, "note": "n"}]}, "slides": [],
+          "win_likelihood": {"panel_read_pct": 50, "panel_rationale": "r"}, "top_actions": ["x"]}
+rows_r = [r for r in R.timing_rows(sess_r, sess_r["preread"], []) ]; assert [r["n"] for r in rows_r] == [1, 2]
+out_r = R.normalise_score(raw_sc, rows_r, sess_r, sess_r["preread"], 5.0)
+assert [i["req_id"] for i in out_r["brief_coverage"]["items"]] == ["R1"] and out_r["brief_coverage"]["score"] == 100 and len(out_r["slides"]) == 2
+out_f = R.normalise_score(raw_sc, R.timing_rows(sess_full, sess_full["preread"], []), sess_full, sess_full["preread"], 5.0)
+assert [i["req_id"] for i in out_f["brief_coverage"]["items"]] == ["R1", "R3"] and out_f["brief_coverage"]["score"] == 50
+# question time only: no coverage, no slide table, scored on questions + gut
+out_q = R.normalise_score(raw_sc, rows_r, sess_r, sess_r["preread"], 0, True, qa_only=True)
+assert out_q["brief_coverage"]["score"] is None and out_q["brief_coverage"]["items"] == [] and out_q["slides"] == [] and out_q["delivery_score"] is None
+assert out_q["meta"]["qa_only"] and out_q["total"] == round((70 + 60) / 2) and out_q["win_likelihood"]["calculated_pct"] == round(0.6 * 70 + 0.4 * 60)
+class ScFake(FakeClient):
+    def stream(self, **kw):
+        if "submit_score" in str(kw.get("tools")): calls.append(kw)
+        return super().stream(**kw)
+R.score(ScFake(), ctx_r, sess_r, sess_r["preread"], [], None, "", True, qa_only=True)
+sent = str(calls[-1]["messages"][0]["content"]); assert "QUESTION-TIME-ONLY" in sent
+q_only = R.qa_questions(QAFake(), ctx_r, sess_r, [], qa_only=True)
+assert "QUESTION-TIME-ONLY" in calls[-1]["messages"][0]["content"][1]["text"] and "has NOT pitched" in calls[-1]["messages"][0]["content"][1]["text"]
+# endpoints: qa_only is remembered and flows into scoring and the docx
+m.get_client = lambda: ScFake()
+rid_q = c.post(f"/api/sessions/{sid}/rehearsals").json()["rid"]
+assert c.post(f"/api/sessions/{sid}/rehearsals/{rid_q}/qa", json={"events": [], "qa_only": True, "n": 2}).status_code == 200
+assert m._reh_read(sid, rid_q)["mode"] == "qa_only"
+sc_q = c.post(f"/api/sessions/{sid}/rehearsals/{rid_q}/score", json={"events": [{"type": "speech", "t": 1, "slide": 1, "text": "an answer", "phase": "qa"}]}).json()
+assert sc_q["meta"]["qa_only"] and sc_q["brief_coverage"]["score"] is None
+assert c.get(f"/api/sessions/{sid}/rehearsals/{rid_q}/export.docx").content[:2] == b"PK"
+# interjection level can be changed live from the page
+st_lvl = dict(sess_full); st_lvl["settings"] = dict(sess_full["settings"], interjection=5)
+assert R.live_turn(fc, ctx, st_lvl, {"interjection": 0, "slide": 2, "elapsed": 900, "asked": [], "recent": []})["gated"] == "off"
+print("SCOPE OK")

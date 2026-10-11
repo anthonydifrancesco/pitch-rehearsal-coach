@@ -216,25 +216,29 @@ def _score_sections(doc, reh: dict) -> None:
     sc = reh["score"]
     _h(doc, "Rehearsal results", 1)
     _para(doc, f"Rehearsal {reh.get('started', '')} · {(str(sc['meta'].get('minutes')) + ' min pitch') if sc['meta'].get('minutes') else 'timing not assessed'}", 9, italic=True)
-    _table(doc, ["Brief coverage", "Gut feel", "Question handling", "Delivery", "Total (coverage + gut)"],
-           [[sc["brief_coverage"]["score"], sc["gut_feel"]["score"], sc["question_handling"]["score"],
-             "n/a" if sc["delivery_score"] is None else sc["delivery_score"], sc["total"]]], [5, 5, 5, 5, 5])
+    qa_only = bool(sc["meta"].get("qa_only"))
+    na = lambda v: "n/a" if v is None else v
+    _table(doc, ["Brief coverage", "Gut feel", "Question handling", "Delivery", "Total (questions + gut)" if qa_only else "Total (coverage + gut)"],
+           [[na(sc["brief_coverage"]["score"]), sc["gut_feel"]["score"], sc["question_handling"]["score"],
+             na(sc["delivery_score"]), sc["total"]]], [5, 5, 5, 5, 5])
     w = sc["win_likelihood"]
     _para(doc, f"Win likelihood: panel's independent read {w['panel_read_pct']}% vs calculated {w['calculated_pct']}% "
-               + ("(0.41 coverage + 0.35 gut + 0.24 questions; no delivery score without timestamps)." if sc["delivery_score"] is None
-                else "(0.35 coverage + 0.30 gut + 0.20 questions + 0.15 delivery)."), 10, bold=True)
+               + ("(0.6 questions + 0.4 gut; question time only, no pitch was given)." if qa_only else
+                  "(0.41 coverage + 0.35 gut + 0.24 questions; no delivery score without timestamps)." if sc["delivery_score"] is None
+                  else "(0.35 coverage + 0.30 gut + 0.20 questions + 0.15 delivery)."), 10, bold=True)
     _para(doc, w.get("panel_rationale", ""), 10)
 
     _h(doc, "Top actions", 2)
     for a in sc["top_actions"]:
         doc.add_paragraph(a, style="List Bullet")
 
-    _h(doc, "Brief coverage", 2)
-    _para(doc, sc["brief_coverage"].get("summary", ""))
-    _table(doc, ["Req", "Met?", "Evidence from the pitch", "Note"],
-           [[i["req_id"], i["met"], i["evidence"], i["note"]] for i in sc["brief_coverage"]["items"]],
-           [1.4, 2.0, 11.0, 11.4],
-           [{1: {"yes": "DDEFE3", "partial": "FBEBC8", "no": "F6D5D2"}.get(i["met"])} for i in sc["brief_coverage"]["items"]])
+    if not qa_only:
+        _h(doc, "Brief coverage", 2)
+        _para(doc, sc["brief_coverage"].get("summary", ""))
+        _table(doc, ["Req", "Met?", "Evidence from the pitch", "Note"],
+               [[i["req_id"], i["met"], i["evidence"], i["note"]] for i in sc["brief_coverage"]["items"]],
+               [1.4, 2.0, 11.0, 11.4],
+               [{1: {"yes": "DDEFE3", "partial": "FBEBC8", "no": "F6D5D2"}.get(i["met"])} for i in sc["brief_coverage"]["items"]])
 
     _h(doc, "Gut feel", 2)
     _para(doc, sc["gut_feel"].get("rationale", ""))
@@ -244,12 +248,13 @@ def _score_sections(doc, reh: dict) -> None:
            [[i["asker"], i["question"], i["answer_summary"], i["rating"], i["note"]] for i in sc["question_handling"]["items"]],
            [3.2, 7.0, 7.0, 1.6, 7.0])
 
-    _h(doc, "Slide-by-slide delivery", 2)
-    _table(doc, ["#", "Slide", "Intended pace", "Time (s)", "Words", "Verdict", "Rating", "Note"],
-           [[s["n"], s["title"], s["pacing"], "" if s["seconds"] is None else s["seconds"], s["words"], s["verdict"], s["rating"], s["note"]]
-            for s in sc["slides"]], [1.0, 4.4, 2.0, 1.6, 1.4, 2.0, 1.4, 12.0],
-           [{5: {"clear": "DDEFE3", "ok": "EEECE6", "rushed": "FBEBC8", "waffled": "FBEBC8", "skipped": "F6D5D2"}.get(s["verdict"])}
-            for s in sc["slides"]])
+    if sc["slides"]:
+        _h(doc, "Slide-by-slide delivery", 2)
+        _table(doc, ["#", "Slide", "Intended pace", "Time (s)", "Words", "Verdict", "Rating", "Note"],
+               [[s["n"], s["title"], s["pacing"], "" if s["seconds"] is None else s["seconds"], s["words"], s["verdict"], s["rating"], s["note"]]
+                for s in sc["slides"]], [1.0, 4.4, 2.0, 1.6, 1.4, 2.0, 1.4, 12.0],
+               [{5: {"clear": "DDEFE3", "ok": "EEECE6", "rushed": "FBEBC8", "waffled": "FBEBC8", "skipped": "F6D5D2"}.get(s["verdict"])}
+                for s in sc["slides"]])
 
     if sc["presenters"]:
         _h(doc, "Per presenter", 2)
