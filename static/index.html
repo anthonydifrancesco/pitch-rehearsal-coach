@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<script src="/static/theme.js"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Pitch Rehearsal Coach</title>
 <style>
@@ -85,7 +86,7 @@ tr.clickable{cursor:pointer}tr.clickable:hover td{background:var(--bg)}
 <body>
 <header>
   <h1>Pitch Rehearsal Coach</h1>
-  <div class="steps"><span class="step on" id="st1">1 Setup</span><span class="step" id="st2">2 Pre-read</span><span class="step">3 Rehearse</span></div>
+  <div class="steps"><span class="step on" id="st1">1 Setup</span><span class="step" id="st2">2 Pre-read</span><span class="step">3 Rehearse</span><a class="step" href="/settings" style="text-decoration:none">⚙ Settings</a></div>
 </header>
 <main>
 
@@ -138,8 +139,14 @@ tr.clickable{cursor:pointer}tr.clickable:hover td{background:var(--bg)}
 
   <div class="card mode-new">
     <h2>Pitch deck</h2>
-    <p class="hint">PowerPoint (.pptx). Speaker notes are used to infer pacing and who presents which slide. Charts and images are not read yet.</p>
+    <p class="hint">PowerPoint (.pptx). Speaker notes are used to infer pacing and who presents which slide. Charts built in PowerPoint are read as data.</p>
     <div class="file"><input type="file" id="deckFile" accept=".pptx"></div>
+    <label class="row small" style="margin-top:12px;color:var(--ink)"><input type="checkbox" id="readVis"> <b>Read the slide visuals</b> <span class="muted">(photos, screenshots, charts, diagrams). Slower, and uses more API credit.</span></label>
+    <div id="visBox" class="hidden" style="margin-top:10px">
+      <label>Deck as a PDF (recommended: File &gt; Export &gt; PDF in PowerPoint)</label>
+      <div class="file"><input type="file" id="deckPdf" accept=".pdf"></div>
+      <div class="small muted">With the PDF, Claude sees every slide exactly as the client does. Without it, only pictures embedded in the .pptx are read.</div>
+    </div>
   </div>
 
   <div class="card mode-review hidden">
@@ -179,10 +186,15 @@ tr.clickable{cursor:pointer}tr.clickable:hover td{background:var(--bg)}
     </div>
   </div>
 
-  <div class="card mode-rehearse">
+  <div class="card mode-rehearse" id="panel">
     <h2>Panel personas</h2>
-    <p class="hint">Pick who is in the room. Questions slider sets how much each one asks. Flag the key decision-makers.</p>
+    <p class="hint">Build the panel to match who will really be in the room: change names, titles and how they behave, or add people. Questions slider sets how much each one asks. Flag the key decision-makers.</p>
     <div class="grid" id="personas"></div>
+    <div class="row" style="margin-top:14px">
+      <select id="tplSel" style="width:auto;min-width:230px"></select><button type="button" id="addPerson">Add</button>
+      <button type="button" id="savePanel" style="margin-left:auto">Save as my default panel</button>
+    </div>
+    <div class="small muted" id="personaMsg" style="margin-top:6px">Changes apply to this pitch. Save them to reuse the panel next time.</div>
   </div>
 
   <div class="card mode-rehearse">
@@ -264,23 +276,40 @@ async function apiLong(path, opts) {           // long AI calls: run on the serv
 }
 
 /* ---------- setup ---------- */
+const ACCENTS = ['Australian', 'British', 'American', 'Irish', 'Indian', 'New Zealand', 'Canadian'];
+const TEMPLATES = [
+  ['CEO / managing director', 'Chief Executive', 'Big-picture and commercial. Wants the strategic fit, the risk to the brand, and a clear reason to choose you over the incumbent. Impatient with detail that does not move the decision.', 'male', 52],
+  ['Procurement lead', 'Head of Procurement', 'Process-driven and fair-minded. Probes pricing structure, contract terms, service levels, exit clauses and how you compare like for like with other bidders.', 'female', 46],
+  ['Marketing director', 'Marketing Director', 'Cares about brand presentation, campaign impact and customer experience in store. Asks how execution protects the brand and what the shopper actually sees.', 'female', 42],
+  ['Sales / category manager', 'National Sales Manager', 'Commercial and numbers-led. Wants proof it lifts sales, how quickly, and how you work with the retailers\' buyers.', 'male', 44],
+  ['Legal / compliance', 'Legal & Compliance Counsel', 'Careful and literal. Probes privacy, data handling, insurance, WHS and what happens when something goes wrong.', 'female', 50],
+  ['IT / data security', 'Head of IT Security', 'Asks where data lives, who can access it, how it is secured and how systems integrate with theirs. Distrusts vague assurances.', 'male', 38],
+  ['Friendly sponsor', 'Internal Champion', 'Supportive and wants you to succeed. Asks the soft questions that let you shine, but will quietly note any hesitation to report back.', 'female', 36],
+  ['Blank person', '', '', 'female', 40],
+];
+const SWATCH = ['#d4a017', '#2e8b57', '#e5484d', '#3b82f6', '#a259ff', '#14b8a6', '#f97316', '#ec4899'];
 function renderPersonas() {
   $('#personas').innerHTML = personas.map((p, i) => `
-    <div class="persona ${p.include === false ? 'off' : ''}" data-i="${i}">
+    <div class="persona ${p.include === false ? 'off' : ''}" data-i="${i}" style="--c:${esc(p.colour)}">
       <div class="top"><span class="orb" style="--c:${esc(p.colour)}"></span>
-        <div style="flex:1"><div class="nm">${esc(p.name)}</div><div class="tt">${esc(p.title)}</div></div>
+        <div style="flex:1;min-width:0"><input type="text" data-f="name" value="${esc(p.name)}" maxlength="40" placeholder="Name" style="font-weight:600;margin-bottom:4px">
+          <input type="text" data-f="title" value="${esc(p.title)}" maxlength="60" placeholder="Job title"></div>
         <input type="checkbox" data-f="include" ${p.include === false ? '' : 'checked'} title="Include in this pitch"></div>
       <label>Questions <span class="rv">${p.questions}</span></label>
       <input type="range" min="0" max="10" value="${p.questions}" data-f="questions">
       <label style="display:flex;gap:6px;align-items:center;margin-top:8px"><input type="checkbox" data-f="key_decision_maker" ${p.key_decision_maker ? 'checked' : ''}> Key decision-maker</label>
-      <details><summary>Voice &amp; style</summary>
-        <div class="row" style="margin-top:8px"><input type="number" class="n" data-f="age" value="${p.voice.age}" title="Age">
-          <input type="text" data-f="gender" value="${esc(p.voice.gender)}" title="Gender">
-          <input type="text" data-f="accent" value="${esc(p.voice.accent)}" title="Accent"></div>
-        <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" data-f="locked" ${p.voice.locked ? 'checked' : ''}> Lock this voice</label>
-        <label style="margin-top:8px">How they behave</label><textarea data-f="style" style="min-height:70px">${esc(p.style)}</textarea>
+      <label style="margin-top:8px">How they behave (concerns, personality, hot buttons)</label>
+      <textarea data-f="style" style="min-height:84px" maxlength="800" placeholder="e.g. Protective of her team, hates vague promises, always asks what happens on a bad day.">${esc(p.style)}</textarea>
+      <details><summary>Voice, colour &amp; remove</summary>
+        <div class="row" style="margin-top:8px"><input type="number" class="n" data-f="age" value="${p.voice.age}" min="18" max="90" title="Age">
+          <select data-f="gender" title="Voice"><option value="female" ${p.voice.gender === 'female' ? 'selected' : ''}>Female voice</option><option value="male" ${p.voice.gender === 'male' ? 'selected' : ''}>Male voice</option></select>
+          <select data-f="accent" title="Accent">${ACCENTS.map(a => `<option ${a.toLowerCase() === String(p.voice.accent).toLowerCase() ? 'selected' : ''}>${a}</option>`).join('')}</select></div>
+        <div class="row"><label style="margin:0">Colour</label><input type="color" data-f="colour" value="${esc(p.colour)}" style="width:44px;height:30px;padding:0"> 
+          <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" data-f="locked" ${p.voice.locked ? 'checked' : ''}> Lock voice</label></div>
+        <button class="small" type="button" data-del="1" style="margin-top:8px">Remove from the panel</button>
       </details>
-    </div>`).join('');
+    </div>`).join('') || '<div class="muted">No panel members. Add one below.</div>';
+  $('#addPerson').disabled = personas.length >= 8;
 }
 $('#personas').addEventListener('input', e => {
   const card = e.target.closest('.persona'); if (!card) return;
@@ -292,8 +321,29 @@ $('#personas').addEventListener('input', e => {
   else if (f === 'age') p.voice.age = +v;
   else if (['gender', 'accent'].includes(f)) p.voice[f] = v;
   else if (f === 'locked') p.voice.locked = v;
-  else if (f === 'style') p.style = v;
+  else if (f === 'name' || f === 'title' || f === 'style') p[f] = v;
+  else if (f === 'colour') { p.colour = v; card.style.setProperty('--c', v); card.querySelector('.orb').style.setProperty('--c', v); }
 });
+$('#personas').addEventListener('click', e => {
+  if (!e.target.dataset.del) return;
+  const i = +e.target.closest('.persona').dataset.i;
+  if (confirm(`Remove ${personas[i].name || 'this person'} from the panel?`)) { personas.splice(i, 1); renderPersonas(); }
+});
+$('#tplSel').innerHTML = '<option value="">+ Add a panel member…</option>' + TEMPLATES.map((x, i) => `<option value="${i}">${esc(x[0])}</option>`).join('');
+$('#addPerson').onclick = () => {
+  const v = $('#tplSel').value; if (v === '' || personas.length >= 8) { $('#personaMsg').textContent = v === '' ? 'Choose a type of person first.' : 'A panel can have up to 8 people.'; return; }
+  const [, title, style, gender, age] = TEMPLATES[+v];
+  personas.push({ id: 'c' + Math.random().toString(36).slice(2, 8), name: '', title, colour: SWATCH[personas.length % SWATCH.length], style, questions: 5,
+    key_decision_maker: false, voice: { age, gender, accent: 'Australian', locked: false } });
+  $('#tplSel').value = ''; $('#personaMsg').textContent = 'Added. Give them a name and adjust how they behave.'; renderPersonas();
+  const last = $('#personas').lastElementChild; if (last) { last.querySelector('[data-f=name]').focus(); }
+};
+$('#savePanel').onclick = async () => {
+  try {
+    const r = await api('/api/personas', {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(personas)});
+    personas = r.personas.map(p => ({...p})); renderPersonas(); $('#personaMsg').textContent = 'Saved as your default panel for new pitches.';
+  } catch (e) { $('#personaMsg').textContent = e.message; }
+};
 function addPresenter(name = '', from = '', to = '') {
   const d = document.createElement('div'); d.className = 'row';
   d.innerHTML = `<input type="text" placeholder="Name" value="${esc(name)}"><input type="number" class="n" min="1" placeholder="from" value="${esc(from)}"><input type="number" class="n" min="1" placeholder="to" value="${esc(to)}"><button class="small" type="button">✕</button>`;
@@ -301,6 +351,7 @@ function addPresenter(name = '', from = '', to = '') {
   $('#presenters').appendChild(d);
 }
 $('#addPres').onclick = () => addPresenter();
+$('#readVis').onchange = e => $('#visBox').classList.toggle('hidden', !e.target.checked);
 $('#interj').oninput = e => $('#interjV').textContent = e.target.value;
 $('#diff').oninput = e => $('#diffV').textContent = `${e.target.value} · ${DIFF[e.target.value]}`;
 
@@ -361,10 +412,12 @@ $('#go').onclick = async () => {
     const fd = new FormData();
     fd.append('settings', JSON.stringify(collectSettings()));
     fd.append('deck', deck);
+    if ($('#readVis').checked) { fd.append('read_visuals', '1'); if ($('#deckPdf').files[0]) fd.append('deck_pdf', $('#deckPdf').files[0]); }
     if ($('#rfpFile').files[0]) fd.append('rfp_file', $('#rfpFile').files[0]);
     fd.append('rfp_text', $('#rfpText').value);
     const made = await api('/api/sessions', {method: 'POST', body: fd});
-    msg.innerHTML = `<span class="spin"></span>Read ${made.slide_count} slides. The pre-read takes a minute or two…`;
+    const vz = made.visuals || {};
+    msg.innerHTML = `<span class="spin"></span>Read ${made.slide_count} slides${vz.images ? ' and ' + vz.images + ' slide images' : ''}${vz.warning ? '. ' + esc(vz.warning) : ''}. The pre-read takes a minute or two${vz.images ? ' (longer with images)' : ''}…`;
     await apiLong(`/api/sessions/${made.id}/preread`, {method: 'POST'});
     if (review) {
       msg.innerHTML = '<span class="spin"></span>Matching the transcript to your slides (about a minute)…';
@@ -516,6 +569,7 @@ async function loadPast() {
   const c = await api('/api/config');
   personas = c.personas.map(p => ({...p}));
   renderPersonas(); addPresenter(); applyMode();
+  if (window.PRC && PRC.pref('visuals', '0') === '1') { $('#readVis').checked = true; $('#visBox').classList.remove('hidden'); }
   $('#keyBanner').classList.toggle('hidden', c.has_key);
   loadPast();
   const open = new URLSearchParams(location.search).get('open');

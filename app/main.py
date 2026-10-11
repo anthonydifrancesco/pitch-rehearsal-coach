@@ -19,9 +19,10 @@ from .extract import extract_deck, extract_document
 from . import rehearse as R
 from . import pastpitch as PP
 from . import pack as PK
+from . import visuals as VIS
 from . import review as RV
 from .llm import get_client
-from .personas import load_personas, save_personas
+from .personas import load_personas, reset_personas, sanitize, save_personas
 from .slidewatch import current_slide
 from .preread import DEFAULT_MODEL, PACING, run_preread
 
@@ -109,7 +110,16 @@ def config():
 
 @app.put("/api/personas")
 async def put_personas(personas: List[dict]):
-    save_personas(personas)
+    clean = sanitize(personas)
+    if not clean:
+        raise HTTPException(400, "The panel needs at least one person")
+    save_personas(clean)
+    return {"ok": True, "personas": clean}
+
+
+@app.delete("/api/personas")
+async def delete_personas():
+    reset_personas()
     return {"ok": True}
 
 
@@ -132,15 +142,20 @@ async def create_session(
     deck: UploadFile = File(...),
     rfp_file: Optional[UploadFile] = File(None),
     rfp_text: str = Form(""),
+    deck_pdf: Optional[UploadFile] = File(None),
+    read_visuals: str = Form(""),
 ):
     try:
         cfg = json.loads(settings)
     except json.JSONDecodeError:
         raise HTTPException(400, "Settings were not valid JSON")
+    if isinstance(cfg.get("personas"), list):
+        cfg["personas"] = sanitize(cfg["personas"])
     if not deck.filename or not deck.filename.lower().endswith(".pptx"):
         raise HTTPException(400, "Please attach the deck as a .pptx file")
+    deck_bytes = await deck.read()
     try:
-        slides = extract_deck(await deck.read())
+        slides = extract_deck(deck_bytes)
     except Exception as e:  # corrupt or password-protected files
         raise HTTPException(400, f"Could not read the deck: {e}")
     text = rfp_text.strip()
@@ -158,7 +173,24 @@ async def create_session(
         "settings": cfg, "rfp_text": text, "slides": slides, "pacing_overrides": {},
     }
     _write(sid, sess)
-    return {"id": sid, "slide_count": len(slides), "rfp_chars": len(text)}
+    vis = {"images": 0, "source": "", "warning": ""}
+    if read_visuals.lower() in ("1", "true", "on", "yes"):
+        try:
+            if deck_pdf is not None and deck_pdf.filename:
+                pages = await run_in_threadpool(VIS.render_pdf, await deck_pdf.read())
+                vis["source"] = "pdf"
+                if len(pages) != len(slides):
+                    vis["warning"] = f"The PDF has {len(pages)} pages but the deck has {len(slides)} slides, so images may not line up with slides."
+                vis["images"] = VIS.save(_dir(sid) / "visuals", {i + 1: [b] for i, b in enumerate(pages)})
+            else:
+                pics = await run_in_threadpool(VIS.pptx_pictures, deck_bytes)
+                vis["source"] = "pptx"
+                vis["images"] = VIS.save(_dir(sid) / "visuals", pics)
+                if not vis["images"]:
+                    vis["warning"] = "No usable pictures were found inside the .pptx. Charts drawn in PowerPoint are read as data. For a full picture of each slide, also attach the deck as a PDF."
+        except Exception as e:
+            vis["warning"] = f"Could not read the slide visuals ({type(e).__name__}: {e}). Carrying on with text only."
+    return {"id": sid, "slide_count": len(slides), "rfp_chars": len(text), "visuals": vis}
 
 
 # ---- background jobs: long AI calls can outlive a single browser connection (proxies, redeploys), so the
@@ -206,7 +238,7 @@ async def _do_preread(sid: str):
                                  "pre-read can't be re-run here. Re-run the analysis in the analysis tool and import a fresh pack.")
     try:
         result = await run_in_threadpool(run_preread, sess["rfp_text"], sess["slides"], sess["settings"],
-                                          None, _dir(sid) / "raw_preread.json")
+                                          None, _dir(sid) / "raw_preread.json", VIS.load(_dir(sid) / "visuals"))
     except RuntimeError as e:
         raise HTTPException(400, str(e))
     except Exception as e:
@@ -270,6 +302,8 @@ async def import_pack(
     Optionally attach the deck (.pptx) too; it is only used to warn if the deck has changed since the analysis."""
     try:
         cfg = json.loads(settings or "{}")
+        if isinstance(cfg.get("personas"), list):
+            cfg["personas"] = sanitize(cfg["personas"])
     except json.JSONDecodeError:
         raise HTTPException(400, "Settings were not valid JSON")
     try:
@@ -498,6 +532,11 @@ def review_export(sid: str, rid: str):
     return Response(build_review_docx(sess, sess["preread"], reh),
                     media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                     headers={"Content-Disposition": f'attachment; filename="{name}_pitch-review.docx"'})
+
+
+@app.get("/settings")
+def settings_page():
+    return FileResponse(STATIC / "settings.html")
 
 
 @app.get("/review")

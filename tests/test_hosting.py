@@ -54,4 +54,15 @@ async def _jobs():
     assert await m._maybe_bg(0, _slow, 1) == {"x": 1}
 import json
 asyncio.run(_jobs())
+# panel editor: custom people are cleaned, saved, and can be reset
+bad = [{"id": "Bad Id!!", "name": "  Sam  ", "title": "CEO", "colour": "javascript:x", "questions": 99, "voice": {"age": "x", "gender": "F"}},
+       {"id": "bad_id", "name": "", "style": "s" * 2000}]
+r = c.put("/api/personas", json=bad, headers=H); assert r.status_code == 200, r.text
+ps = r.json()["personas"]; assert len(ps) == 2 and ps[0]["id"] == "badid" and ps[0]["name"] == "Sam" and ps[0]["questions"] == 10
+assert ps[0]["colour"].startswith("#") and ps[0]["voice"] == {"age": 40, "gender": "female", "accent": "Australian", "locked": False}
+assert ps[1]["id"] != ps[0]["id"] and ps[1]["name"] == "Member 2" and len(ps[1]["style"]) == 800
+assert [p["name"] for p in c.get("/api/config", headers=H).json()["personas"]] == ["Sam", "Member 2"]
+assert c.put("/api/personas", json=[], headers=H).status_code == 400
+assert c.delete("/api/personas", headers=H).status_code == 200 and len(c.get("/api/config", headers=H).json()["personas"]) == 5
+assert c.get("/settings", headers=H).status_code == 200 and "Daylight" in c.get("/settings", headers=H).text
 print("HOSTING OK")

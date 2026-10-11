@@ -23,6 +23,19 @@ def _shape_text(shape) -> list[str]:
             cells = [c.text.strip() for c in row.cells]
             if any(cells):
                 out.append(" | ".join(cells))
+    if getattr(shape, "has_chart", False) and shape.has_chart:   # chart data is real text: no image needed
+        try:
+            ch = shape.chart
+            cats = [str(c) for c in ch.plots[0].categories][:12]
+            bits = []
+            for pl in ch.plots:
+                for se in pl.series:
+                    vals = [("%g" % v) if v is not None else "-" for v in list(se.values)[:12]]
+                    bits.append(f"{se.name}: " + ", ".join(vals))
+            title = ch.chart_title.text_frame.text.strip() if ch.has_title and ch.chart_title.has_text_frame else ""
+            out.append(f"[CHART{(' ' + title) if title else ''}; categories: {', '.join(cats)}; " + "; ".join(bits) + "]")
+        except Exception:
+            out.append("[CHART]")
     return out
 
 

@@ -122,7 +122,7 @@ TOOL = {
 }
 
 
-def build_messages(rfp_text: str, slides: list[dict], settings: dict) -> list[dict]:
+def build_messages(rfp_text: str, slides: list[dict], settings: dict, visuals: list | None = None) -> list[dict]:
     rfp = rfp_text[:MAX_RFP_CHARS]
     ignore = (settings.get("ignore_topics") or "").strip()
     context_bits = [
@@ -139,17 +139,23 @@ def build_messages(rfp_text: str, slides: list[dict], settings: dict) -> list[di
         "<rfp>\n" + rfp + "\n</rfp>\n\n<deck slide_count=\"%d\">\n" % len(slides)
         + deck_as_prompt_text(slides) + "\n</deck>"
     )
-    return [
-        {
-            "role": "user",
-            "content": [
-                # The big, reusable block is cached so re-runs and later live-panel calls are cheap.
-                {"type": "text", "text": doc_block, "cache_control": {"type": "ephemeral"}},
-                {"type": "text", "text": "Rehearsal settings:\n" + "\n".join(context_bits)
-                 + f"\n\nProduce the pre-read for all {len(slides)} slides."},
-            ],
-        }
+    content: list = [
+        # The big, reusable block is cached so re-runs and later live-panel calls are cheap.
+        {"type": "text", "text": doc_block, "cache_control": {"type": "ephemeral"}},
     ]
+    note = ""
+    if visuals:
+        content[0].pop("cache_control")
+        for v in visuals:
+            content.append({"type": "text", "text": f"Slide {v['n']} visual" + (f" ({v['k']})" if v.get("k", 1) > 1 else "") + ":"})
+            content.append({"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": v["b64"]}})
+        content[-1]["cache_control"] = {"type": "ephemeral"}
+        note = ("\n\nImages of the slides are attached above, each labelled with its slide number. Treat what they show (charts, "
+                "photos, screenshots, diagrams, product shots) as part of the slide's evidence: use it for the slide's purpose, evidence "
+                "strength and evidence_note, and for questions a client would ask about the visual. Never invent detail you cannot see.")
+    content.append({"type": "text", "text": "Rehearsal settings:\n" + "\n".join(context_bits)
+                    + f"\n\nProduce the pre-read for all {len(slides)} slides." + note})
+    return [{"role": "user", "content": content}]
 
 
 def _load(v):
@@ -260,7 +266,7 @@ def normalise(raw: dict[str, Any], slide_count: int) -> dict[str, Any]:
     }
 
 
-def run_preread(rfp_text: str, slides: list[dict], settings: dict, client=None, debug_path=None) -> dict:
+def run_preread(rfp_text: str, slides: list[dict], settings: dict, client=None, debug_path=None, visuals: list | None = None) -> dict:
     if client is None:
         import anthropic
 
@@ -271,7 +277,7 @@ def run_preread(rfp_text: str, slides: list[dict], settings: dict, client=None, 
             )
         client = anthropic.Anthropic(api_key=key)
     model = os.environ.get("PREREAD_MODEL", DEFAULT_MODEL)
-    messages = build_messages(rfp_text, slides, settings)
+    messages = build_messages(rfp_text, slides, settings, visuals)
     raw = None
     msg = None
     for attempt in range(2):

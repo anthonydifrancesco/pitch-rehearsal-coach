@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<script src="/static/theme.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Settings · Pitch Rehearsal Coach</title>
+<link rel="icon" href="data:,">
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,sans-serif}
+header{display:flex;align-items:center;gap:16px;padding:14px 24px;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+header h1{font-size:17px;margin:0}header a{margin-left:auto;font-size:13px;color:var(--muted);text-decoration:none}
+main{max-width:900px;margin:0 auto;padding:24px}
+.card{padding:20px;margin-bottom:18px;border:1px solid var(--line);border-radius:12px}
+.card h2{margin:0 0 4px}.hint{color:var(--muted);font-size:13px;margin:0 0 14px}
+button,.btn{font:inherit;cursor:pointer;padding:8px 14px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--ink);text-decoration:none;display:inline-block}
+.themes{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
+.th{display:block;text-align:left;padding:0;overflow:hidden;border:2px solid var(--line2)!important;border-radius:var(--r)!important;cursor:pointer}
+.th[aria-pressed=true]{border-color:var(--accent)!important;box-shadow:0 0 0 3px var(--btn-glow)}
+.prev{height:96px;padding:10px;display:flex;flex-direction:column;gap:6px}
+.prev i{display:block;height:8px;border-radius:4px}.prev .bar{height:14px;border-radius:3px;width:100%}
+.prev .row{display:flex;gap:6px}.prev .row i{flex:1;height:30px;border-radius:5px}
+.th b{display:block;padding:10px 12px 0}.th span{display:block;padding:0 12px 12px;font-size:12px;color:var(--muted)}
+label.opt{display:flex;gap:10px;align-items:flex-start;padding:8px 0}
+.msg{font-size:13px;color:var(--ok);margin-left:8px}
+</style>
+<link rel="stylesheet" href="/static/theme.css">
+</head>
+<body>
+<header><h1>Settings</h1><a href="/">← Back to the coach</a></header>
+<main>
+  <div class="card">
+    <h2>Look</h2>
+    <p class="hint">Saved in this browser only, so your work laptop and home computer can each have their own.</p>
+    <div class="themes" id="themes"></div>
+  </div>
+  <div class="card">
+    <h2>New pitches</h2>
+    <label class="opt"><input type="checkbox" id="pVis"> <span><b>Tick “Read the slide visuals” by default</b><br><span class="hint" style="margin:0">Uses more API credit and takes longer. You can still change it for each pitch.</span></span></label>
+  </div>
+  <div class="card">
+    <h2>Motion</h2>
+    <label class="opt"><input type="checkbox" id="pCalm"> <span><b>Calm orbs</b><br><span class="hint" style="margin:0">Slows the orb animation. Helpful on older laptops, or if the movement is distracting.</span></span></label>
+  </div>
+  <div class="card">
+    <h2>Your panel</h2>
+    <p class="hint">Add, edit and remove panel people on the setup page under “Panel personas”. Press <b>Save as my default panel</b> there to keep them for every new pitch.</p>
+    <a class="btn" href="/#panel">Open the panel editor</a>
+    <button id="resetPanel" type="button">Reset to the five starter personas</button><span class="msg" id="resetMsg"></span>
+  </div>
+</main>
+<script>
+const THEMES = [
+  ['dark', 'Control room', 'Dark, cinematic. Best in a dim room.', ['#060910', '#0b101b', '#45d4ff', '#1a2338']],
+  ['light', 'Daylight', 'Clean and bright for a well-lit office.', ['#f3f5f9', '#ffffff', '#0a7cae', '#dfe4ee']],
+  ['microsoft', 'Microsoft', 'Familiar Office look: Segoe UI, blue title bar, flat white cards.', ['#f5f5f5', '#ffffff', '#0f6cbd', '#0f548c']],
+];
+function draw() {
+  const cur = PRC.get();
+  document.getElementById('themes').innerHTML = THEMES.map(([k, n, d, c]) => `<button type="button" class="th" data-k="${k}" aria-pressed="${cur === k}">
+    <div class="prev" style="background:${c[0]}"><div class="bar" style="background:${c[3]}"></div><div class="row"><i style="background:${c[1]}"></i><i style="background:${c[1]}"></i></div><i style="width:60%;background:${c[2]}"></i></div>
+    <b>${n}</b><span>${d}</span></button>`).join('');
+}
+document.getElementById('themes').onclick = e => { const b = e.target.closest('.th'); if (b) { PRC.set(b.dataset.k); draw(); } };
+draw();
+const pv = document.getElementById('pVis'), pc = document.getElementById('pCalm');
+pv.checked = PRC.pref('visuals', '0') === '1'; pc.checked = PRC.pref('calm', '0') === '1';
+pv.onchange = () => PRC.setPref('visuals', pv.checked ? '1' : '0');
+pc.onchange = () => PRC.setPref('calm', pc.checked ? '1' : '0');
+document.getElementById('resetPanel').onclick = async () => {
+  if (!confirm('Replace your saved default panel with the five starter personas?')) return;
+  const r = await fetch('/api/personas', { method: 'DELETE' });
+  document.getElementById('resetMsg').textContent = r.ok ? 'Done.' : 'Could not reset.';
+};
+</script>
+</body>
+</html>

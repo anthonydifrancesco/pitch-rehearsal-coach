@@ -57,7 +57,7 @@ raw = {"deck_summary": "A summary.", "requirements": [
   {"id": "R3", "text": "Weekly report", "category": "reporting", "priority": "must", "ignored": False}],
   "slides": [{"n": i, "purpose": "p", "key_message": f"key {i}", "pacing": ["quick", "weighty", "normal"][i - 1], "pacing_reason": "r", "covers": ["R1"] if i == 2 else [], "evidence_strength": "ok", "evidence_note": "", "likely_questions": []} for i in (1, 2, 3)],
   "unanswered_requirements": [], "inconsistencies": []}
-m.run_preread = lambda rfp_text, slides, settings, client=None, debug_path=None: normalise(raw, len(slides))
+m.run_preread = lambda rfp_text, slides, settings, client=None, debug_path=None, visuals=None: normalise(raw, len(slides))
 c = TestClient(m.app)
 settings = {"title": "Browser test pitch", "channel": "x", "difficulty": 3, "interjection": 10, "ignore_topics": "", "guidance": "",
             "range": {"from": None, "to": None}, "personas": STARTERS, "presenters": [{"name": "Anthony", "from": 1, "to": 3}]}

@@ -8,7 +8,7 @@
 (function () {
   'use strict';
   const TAU = Math.PI * 2;
-  const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const reduce = (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) || (window.PRC && PRC.pref('calm', '0') === '1');
 
   function hex(c) {
     const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(String(c || '').trim());
