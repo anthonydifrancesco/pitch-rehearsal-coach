@@ -344,7 +344,7 @@ async def import_pack(
             slides = real  # richer slide text, same numbering
     pitch = p["pitch"]
     # The pack supplies the pitch details; the form only overrides them where it has something to say.
-    keys = ("title", "channel", "ignore_topics", "guidance", "presenters")
+    keys = ("title", "client", "channel", "ignore_topics", "guidance", "presenters")
     merged = {**{k: pitch[k] for k in keys if pitch.get(k)}, **{k: v for k, v in cfg.items() if k not in keys or v}}
     merged["mode"] = "rehearse"
     sid = uuid.uuid4().hex[:10]
@@ -456,6 +456,16 @@ async def start_rehearsal(sid: str):
 async def save_log(sid: str, rid: str, body: dict):
     reh = _reh_read(sid, rid)
     reh["events"] = body.get("events", [])
+    m = body.get("meta")
+    if isinstance(m, dict):
+        old = reh.get("meta") or {}
+        st = m.get("session_type")
+        rng = m.get("range")
+        reh["meta"] = {
+            "session_type": st if st in ("full", "quiet", "qa") else old.get("session_type", "full"),
+            "presenter": str(m.get("presenter") or old.get("presenter") or "")[:80].strip(),
+            "range": [int(rng[0]), int(rng[1])] if isinstance(rng, list) and len(rng) == 2 and all(isinstance(x, (int, float)) for x in rng) else old.get("range"),
+        }
     _reh_write(sid, rid, reh)
     return {"ok": True, "events": len(reh["events"])}
 
@@ -547,6 +557,108 @@ def review_export(sid: str, rid: str):
     return Response(build_review_docx(sess, sess["preread"], reh),
                     media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                     headers={"Content-Disposition": f'attachment; filename="{name}_pitch-review.docx"'})
+
+
+def _speakers(events) -> list:
+    seen = []
+    for e in events or []:
+        n = (e.get("speaker") or "").strip() if isinstance(e, dict) and e.get("type") == "speech" else ""
+        if n and n not in seen:
+            seen.append(n)
+    return seen
+
+
+def _history_rows() -> list:
+    rows = []
+    if not SESSIONS.exists():
+        return rows
+    for sd in SESSIONS.iterdir():
+        sf = sd / "session.json"
+        rd = sd / "rehearsals"
+        if not sf.exists() or not rd.exists():
+            continue
+        try:
+            sess = json.loads(sf.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        st = sess.get("settings") or {}
+        total_slides = len(sess.get("slides") or [])
+        for f in rd.glob("*.json"):
+            if f.name.endswith(".raw_score.json"):
+                continue
+            try:
+                r = json.loads(f.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            ev = r.get("events") or []
+            sc = r.get("score") or {}
+            if not ev and not sc:
+                continue
+            kind = "review" if r.get("review") else "real" if r.get("past") else "rehearsal"
+            meta = r.get("meta") or {}
+            sm = sc.get("meta") or {}
+            stype = meta.get("session_type") or ("qa" if (sm.get("qa_only") or r.get("mode") == "qa_only") else "full")
+            rng = meta.get("range")
+            if not rng and total_slides:
+                a, b = R.slide_range(st, total_slides)
+                rng = [a, b]
+            mins = sm.get("minutes")
+            if mins is None:
+                ts = [e.get("t") for e in ev if isinstance(e, dict) and isinstance(e.get("t"), (int, float))]
+                mins = round(max(ts) / 60, 1) if ts else None
+            names = _speakers(ev)
+            if meta.get("presenter") and meta["presenter"] not in names:
+                names.insert(0, meta["presenter"])
+            w = sc.get("win_likelihood") or {}
+            rows.append({
+                "sid": sess.get("id") or sd.name, "rid": r.get("id") or f.stem, "kind": kind,
+                "title": st.get("title") or "Untitled pitch", "client": (st.get("client") or "").strip(),
+                "channel": st.get("channel") or "", "started": r.get("started") or "",
+                "session_type": stype, "range": rng, "slides_total": total_slides, "minutes": mins,
+                "presenters": names,
+                "total": sc.get("total"), "question_handling": (sc.get("question_handling") or {}).get("score"),
+                "coverage": None if stype == "qa" else (sc.get("brief_coverage") or {}).get("score"),
+                "gut": (sc.get("gut_feel") or {}).get("score"), "delivery": None if stype == "qa" else sc.get("delivery_score"),
+                "win_panel": w.get("panel_read_pct"), "win_calc": w.get("calculated_pct"),
+                "scored": bool(sc), "outcome": (r.get("past") or {}).get("outcome", ""),
+            })
+    rows.sort(key=lambda x: x["started"], reverse=True)
+    return rows
+
+
+@app.get("/api/history")
+def history():
+    return _history_rows()
+
+
+@app.get("/api/history.csv")
+def history_csv():
+    import csv, io
+    cols = ["started", "client", "title", "channel", "kind", "session_type", "range", "minutes", "presenters", "total",
+            "question_handling", "coverage", "gut", "delivery", "win_panel", "win_calc", "outcome"]
+    buf = io.StringIO()
+    wr = csv.writer(buf)
+    wr.writerow(cols)
+    for r in _history_rows():
+        row = []
+        for c in cols:
+            v = r.get(c)
+            if c == "range":
+                v = f"{v[0]}-{v[1]}" if v else ""
+            elif c == "presenters":
+                v = "; ".join(v)
+            v = "" if v is None else v
+            if isinstance(v, str) and v[:1] in ("=", "+", "-", "@", "\t", "\r"):
+                v = "'" + v   # stop spreadsheet formula injection
+            row.append(v)
+        wr.writerow(row)
+    return Response(buf.getvalue(), media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": 'attachment; filename="rehearsal-history.csv"'})
+
+
+@app.get("/history")
+def history_page():
+    return FileResponse(STATIC / "history.html")
 
 
 @app.get("/settings")

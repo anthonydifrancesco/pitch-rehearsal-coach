@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<script src="/static/theme.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>History · Pitch Rehearsal Coach</title>
+<link rel="icon" href="data:,">
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,sans-serif}
+header{display:flex;align-items:center;gap:16px;padding:14px 24px;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+header h1{font-size:17px;margin:0}header a{font-size:13px;color:var(--muted);text-decoration:none}
+header .sp{margin-left:auto}
+main{max-width:1280px;margin:0 auto;padding:24px 16px}
+.card{padding:18px;margin-bottom:18px;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
+.card h2{margin:0 0 4px;font-size:16px}.hint{color:var(--muted);font-size:13px;margin:0 0 12px}
+.filters{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end}
+.filters label{display:flex;flex-direction:column;font-size:12px;color:var(--muted);gap:3px}
+.filters input,.filters select{font:inherit;font-size:14px;padding:7px 9px;border-radius:8px;border:1px solid var(--line2);background:var(--raised);color:var(--ink);min-width:130px}
+.filters input[type=search]{min-width:200px}
+button,.btn{font:inherit;font-size:14px;cursor:pointer;padding:8px 14px;border-radius:8px;border:1px solid var(--line2);background:var(--raised);color:var(--ink);text-decoration:none;display:inline-block}
+button:hover,.btn:hover{border-color:var(--accent)}
+.tw{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th,td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
+td.wrap{white-space:normal;min-width:160px}
+th{font-size:12px;color:var(--muted);font-weight:600;cursor:pointer;user-select:none;position:sticky;top:0;background:var(--panel)}
+th[aria-sort=ascending]::after{content:" ▲";font-size:10px}th[aria-sort=descending]::after{content:" ▼";font-size:10px}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+tr:hover td{background:var(--raised)}
+.tag{display:inline-block;padding:1px 8px;border-radius:99px;border:1px solid var(--line2);font-size:12px;color:var(--muted)}
+.muted{color:var(--muted)}.small{font-size:12.5px}
+td a{color:var(--accent);text-decoration:none;margin-right:10px}td a:hover{text-decoration:underline}
+.top{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+/* chart */
+.viz{--s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--s4:#eda100;--s5:#e87ba4;--s6:#6250d6}
+:root[data-theme="dark"] .viz{--s1:#3987e5;--s2:#d95926;--s3:#199e70;--s4:#c98500;--s5:#d55181;--s6:#9085e9}
+.viz{position:relative}
+.viz svg{width:100%;height:auto;display:block;overflow:visible}
+.viz .grid{stroke:var(--line);stroke-width:1}.viz .axis{fill:var(--muted);font-size:11px}
+.viz .ln{fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+.viz .pt{stroke:var(--panel);stroke-width:2}
+.viz .lbl{font-size:11.5px;fill:var(--ink);paint-order:stroke;stroke:var(--panel);stroke-width:4px;stroke-linejoin:round}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;margin:10px 0 0;font-size:13px}
+.legend span{display:inline-flex;align-items:center;gap:6px}.legend i{width:12px;height:3px;border-radius:2px;display:inline-block}
+.tip{position:absolute;pointer-events:none;background:var(--raised);border:1px solid var(--line2);border-radius:8px;padding:8px 10px;font-size:12.5px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:3;display:none;max-width:260px}
+.tip b{display:block}
+.empty{padding:30px;text-align:center;color:var(--muted)}
+</style>
+<link rel="stylesheet" href="/static/theme.css">
+</head>
+<body>
+<header>
+  <h1>Rehearsal history</h1>
+  <a href="/">← Back to the coach</a>
+  <a class="sp" href="/settings">⚙ Settings</a>
+</header>
+<main>
+  <div class="card">
+    <div class="filters">
+      <label>Search<input type="search" id="q" placeholder="client, pitch, person…"></label>
+      <label>Client<select id="fClient"></select></label>
+      <label>Presenter<select id="fPres"></select></label>
+      <label>Session type<select id="fType"><option value="">All</option><option value="full">Full rehearsal</option><option value="quiet">No interruptions</option><option value="qa">Question time only</option></select></label>
+      <label>From<input type="date" id="fFrom"></label>
+      <label>To<input type="date" id="fTo"></label>
+      <button id="clear">Clear</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="top"><div><h2>Score trend</h2><p class="hint" id="trendHint" style="margin:0">Total score for each rehearsal, one line per pitch.</p></div>
+      <button id="tblToggle" aria-pressed="false">View as table</button></div>
+    <div class="viz" id="viz"></div>
+    <div class="legend" id="legend"></div>
+    <div class="tw" id="trendTable" style="display:none"></div>
+  </div>
+
+  <div class="card">
+    <div class="top"><div><h2>All rehearsals</h2><p class="hint" style="margin:0" id="count"></p></div>
+      <button id="csv">Download CSV</button></div>
+    <div class="tw"><table id="tbl"><thead></thead><tbody></tbody></table></div>
+  </div>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const TYPES = { full: 'Full rehearsal', quiet: 'No interruptions', qa: 'Question time only' };
+let ROWS = [], VIEW = [], sort = { k: 'started', dir: -1 };
+const COLS = [
+  ['started', 'Date'], ['client', 'Client'], ['title', 'Pitch / scope'], ['session_type', 'Session'], ['range', 'Slides', 'n'],
+  ['minutes', 'Min', 'n'], ['presenters', 'Presenters'], ['total', 'Total', 'n'], ['question_handling', 'Questions', 'n'],
+  ['coverage', 'Coverage', 'n'], ['gut', 'Gut', 'n'], ['delivery', 'Delivery', 'n'], ['win_panel', 'Win % panel', 'n'], ['win_calc', 'Win % calc', 'n'],
+];
+function typeLabel(r) { return r.kind === 'review' ? 'Pitch review' : r.kind === 'real' ? 'Real pitch' : (TYPES[r.session_type] || r.session_type); }
+function rangeTxt(r) { return !r.range ? '' : (r.slides_total && r.range[0] === 1 && r.range[1] === r.slides_total ? 'all' : `${r.range[0]}-${r.range[1]}`); }
+function val(r, k) {
+  if (k === 'presenters') return r.presenters.join(', ').toLowerCase();
+  if (k === 'range') return r.range ? r.range[0] : null;
+  if (k === 'session_type') return typeLabel(r);
+  const v = r[k]; return typeof v === 'string' ? v.toLowerCase() : v;
+}
+function opts(sel, items, all) {
+  const cur = sel.value; sel.innerHTML = `<option value="">${all}</option>` + items.map(i => `<option>${esc(i)}</option>`).join(''); sel.value = items.includes(cur) ? cur : '';
+}
+function filtered() {
+  const q = $('#q').value.trim().toLowerCase(), c = $('#fClient').value, p = $('#fPres').value, t = $('#fType').value, a = $('#fFrom').value, b = $('#fTo').value;
+  return ROWS.filter(r => (!c || r.client === c) && (!p || r.presenters.includes(p)) && (!t || (r.kind === 'rehearsal' && r.session_type === t))
+    && (!a || r.started.slice(0, 10) >= a) && (!b || r.started.slice(0, 10) <= b)
+    && (!q || [r.client, r.title, r.channel, r.presenters.join(' '), typeLabel(r), r.outcome].join(' ').toLowerCase().includes(q)));
+}
+function sorted(rows) {
+  const k = sort.k;
+  return rows.slice().sort((x, y) => { const a = val(x, k), b = val(y, k);
+    if (a == null && b == null) return 0; if (a == null) return 1; if (b == null) return -1;   // blanks always last
+    return (a < b ? -1 : a > b ? 1 : 0) * sort.dir; });
+}
+const num = v => v == null ? '<span class="muted">–</span>' : esc(Math.round(v * 10) / 10);
+function renderTable() {
+  $('#tbl thead').innerHTML = '<tr>' + COLS.map(([k, l, c]) => `<th data-k="${k}" class="${c || ''}" tabindex="0" ${sort.k === k ? `aria-sort="${sort.dir > 0 ? 'ascending' : 'descending'}"` : ''}>${l}</th>`).join('') + '<th>Open</th></tr>';
+  $('#tbl tbody').innerHTML = VIEW.length ? VIEW.map(r => `<tr>
+    <td>${esc(r.started)}</td><td>${r.client ? esc(r.client) : '<span class="muted">–</span>'}</td><td class="wrap">${esc(r.title)}${r.channel ? ` <span class="muted small">· ${esc(r.channel)}</span>` : ''}</td>
+    <td><span class="tag">${esc(typeLabel(r))}</span></td><td class="n">${esc(rangeTxt(r)) || '–'}</td><td class="n">${num(r.minutes)}</td>
+    <td class="wrap">${r.presenters.length ? esc(r.presenters.join(', ')) : '<span class="muted">–</span>'}</td>
+    <td class="n"><b>${num(r.total)}</b></td><td class="n">${num(r.question_handling)}</td><td class="n">${num(r.coverage)}</td><td class="n">${num(r.gut)}</td><td class="n">${num(r.delivery)}</td>
+    <td class="n">${r.win_panel == null ? '–' : esc(r.win_panel) + '%'}</td><td class="n">${r.win_calc == null ? '–' : esc(r.win_calc) + '%'}</td>
+    <td>${r.kind === 'review' ? `<a href="/review?session=${r.sid}&rid=${r.rid}">Review</a>` : `<a href="/rehearse?session=${r.sid}&view=${r.rid}">Results</a>${r.scored ? `<a href="/api/sessions/${r.sid}/rehearsals/${r.rid}/export.docx">Word</a>` : ''}`}</td></tr>`).join('')
+    : `<tr><td colspan="${COLS.length + 1}" class="empty">No rehearsals match. ${ROWS.length ? 'Try clearing the filters.' : 'Finish a rehearsal and it will appear here.'}</td></tr>`;
+  $('#count').textContent = `${VIEW.length} of ${ROWS.length} rehearsal${ROWS.length === 1 ? '' : 's'}`;
+}
+/* ---------- trend chart: one line per pitch, fixed colour order, max 6 ---------- */
+const CAP = 6, DAY = 864e5;
+const tms = s => { const m = /^(\d+)-(\d+)-(\d+)(?: (\d+):(\d+))?/.exec(s || ''); return m ? new Date(+m[1], m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0)).getTime() : NaN; };
+function series() {
+  const by = new Map();
+  filtered().filter(r => r.kind === 'rehearsal' && r.total != null && !isNaN(tms(r.started))).forEach(r => {
+    if (!by.has(r.sid)) by.set(r.sid, { sid: r.sid, name: r.client ? `${r.client} · ${r.title}` : r.title, short: r.client || r.title, pts: [] });
+    by.get(r.sid).pts.push(r); });
+  const all = [...by.values()].map(s => { s.pts.sort((a, b) => tms(a.started) - tms(b.started)); s.last = tms(s.pts[s.pts.length - 1].started); return s; });
+  all.sort((a, b) => a.sid < b.sid ? -1 : 1);   // stable slot per pitch: colour follows the pitch, not its rank
+  const keep = all.slice().sort((a, b) => b.last - a.last).slice(0, CAP).map(s => s.sid);
+  const shown = all.filter(s => keep.includes(s.sid)); shown.forEach((s, i) => s.slot = i + 1);
+  return { shown, hidden: all.length - shown.length };
+}
+const W = 900, H = 260, M = { l: 40, r: 16, t: 12, b: 28 };
+function renderChart() {
+  const { shown, hidden } = series(), viz = $('#viz'), tip = document.createElement('div'); tip.className = 'tip';
+  $('#trendHint').textContent = 'Total score for each rehearsal, one line per pitch.' + (hidden ? ` Showing the ${CAP} most recently practised of ${shown.length + hidden} pitches; filter by client to see the others.` : '');
+  $('#legend').innerHTML = shown.length > 1 ? shown.map(s => `<span><i style="background:var(--s${s.slot})"></i>${esc(s.name)}</span>`).join('') : '';
+  if (!shown.length) { viz.innerHTML = '<div class="empty">No scored rehearsals to chart yet.</div>'; renderTrendTable(shown); return; }
+  const pts = shown.flatMap(s => s.pts.map(p => tms(p.started)));
+  let t0 = Math.min(...pts), t1 = Math.max(...pts); if (t1 - t0 < DAY) { t0 -= DAY / 2; t1 += DAY / 2; } else { const pad = (t1 - t0) * .04; t0 -= pad; t1 += pad; }
+  const X = t => M.l + (t - t0) / (t1 - t0) * (W - M.l - M.r - (shown.length <= 4 ? 120 : 0)), Y = v => M.t + (100 - v) / 100 * (H - M.t - M.b);
+  let g = '';
+  for (let v = 0; v <= 100; v += 25) g += `<line class="grid" x1="${M.l}" x2="${W - M.r}" y1="${Y(v)}" y2="${Y(v)}"/><text class="axis" x="${M.l - 8}" y="${Y(v) + 4}" text-anchor="end">${v}</text>`;
+  const span = t1 - t0, step = span > 120 * DAY ? 30 * DAY : span > 30 * DAY ? 7 * DAY : span > 4 * DAY ? DAY : 6 * 36e5;
+  for (let t = Math.ceil(t0 / step) * step, n = 0; t <= t1 && n < 8; t += Math.max(step, span / 6), n++) {
+    const d = new Date(t); g += `<text class="axis" x="${X(t)}" y="${H - 8}" text-anchor="middle">${d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}</text>`; }
+  let lines = '', dots = '', labels = [];
+  shown.forEach(s => {
+    const c = `var(--s${s.slot})`;
+    if (s.pts.length > 1) lines += `<polyline class="ln" stroke="${c}" points="${s.pts.map(p => `${X(tms(p.started))},${Y(p.total)}`).join(' ')}"/>`;
+    s.pts.forEach(p => { dots += `<circle class="pt" r="4.5" fill="${c}" cx="${X(tms(p.started))}" cy="${Y(p.total)}"/>`; });
+    const l = s.pts[s.pts.length - 1]; labels.push({ y: Y(l.total), x: X(tms(l.started)), s });
+  });
+  let lab = ''; if (shown.length <= 4) { labels.sort((a, b) => a.y - b.y); for (let i = 1; i < labels.length; i++) if (labels[i].y - labels[i - 1].y < 14) labels[i].y = labels[i - 1].y + 14;
+    lab = labels.map(l => `<text class="lbl" x="${l.x + 10}" y="${l.y + 4}">${esc(l.s.short.length > 18 ? l.s.short.slice(0, 17) + '…' : l.s.short)}</text>`).join(''); }
+  viz.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Total score per rehearsal, one line per pitch">${g}${lines}${dots}${lab}<rect id="hit" x="0" y="0" width="${W}" height="${H}" fill="transparent"/><circle id="ring" r="8" fill="none" stroke="var(--ink)" stroke-width="1.5" style="display:none"/></svg>`;
+  viz.appendChild(tip);
+  const flat = shown.flatMap(s => s.pts.map(p => ({ s, p, x: X(tms(p.started)), y: Y(p.total) }))), svg = viz.querySelector('svg'), ring = svg.querySelector('#ring');
+  svg.querySelector('#hit').addEventListener('mousemove', e => {
+    const r = svg.getBoundingClientRect(), k = W / r.width, mx = (e.clientX - r.left) * k, my = (e.clientY - r.top) * k;
+    let best = null, bd = 1e9; flat.forEach(f => { const d = Math.hypot(f.x - mx, f.y - my); if (d < bd) { bd = d; best = f; } });
+    if (!best || bd > 40) { tip.style.display = 'none'; ring.style.display = 'none'; return; }
+    ring.setAttribute('cx', best.x); ring.setAttribute('cy', best.y); ring.style.display = '';
+    const p = best.p; tip.innerHTML = `<b>${esc(best.s.name)}</b>${esc(p.started)} · ${esc(typeLabel(p))}<br>Total ${num(p.total)} · Questions ${num(p.question_handling)}<br>${esc(p.presenters.join(', ') || 'no presenter recorded')}`;
+    tip.style.display = 'block'; const left = best.x / k + 14, w = tip.offsetWidth; tip.style.left = (left + w > r.width ? best.x / k - w - 14 : left) + 'px'; tip.style.top = Math.max(0, best.y / k - 20) + 'px'; });
+  svg.addEventListener('mouseleave', () => { tip.style.display = 'none'; ring.style.display = 'none'; });
+  renderTrendTable(shown);
+}
+function renderTrendTable(shown) {
+  const rows = shown.flatMap(s => s.pts.map(p => ({ s, p }))).sort((a, b) => tms(a.p.started) - tms(b.p.started));
+  $('#trendTable').innerHTML = `<table><thead><tr><th>Date</th><th>Pitch</th><th>Session</th><th>Presenters</th><th class="n">Total</th></tr></thead><tbody>${rows.map(({ s, p }) => `<tr><td>${esc(p.started)}</td><td>${esc(s.name)}</td><td>${esc(typeLabel(p))}</td><td>${esc(p.presenters.join(', '))}</td><td class="n">${num(p.total)}</td></tr>`).join('')}</tbody></table>`;
+}
+/* ---------- csv of whatever is currently filtered and sorted ---------- */
+function csv() {
+  const head = ['Date', 'Client', 'Pitch', 'Channel', 'Type', 'Session', 'Slides', 'Minutes', 'Presenters', 'Total', 'Question handling', 'Coverage', 'Gut feel', 'Delivery', 'Win % (panel)', 'Win % (calculated)', 'Outcome'];
+  const q = v => { v = v == null ? '' : String(v); if (/^[=+\-@\t\r]/.test(v)) v = "'" + v; return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };   // also blocks spreadsheet formula injection
+  const lines = [head.join(',')].concat(VIEW.map(r => [r.started, r.client, r.title, r.channel, r.kind, TYPES[r.session_type] || r.session_type, r.range ? r.range.join('-') : '', r.minutes, r.presenters.join('; '),
+    r.total, r.question_handling, r.coverage, r.gut, r.delivery, r.win_panel, r.win_calc, r.outcome].map(q).join(',')));
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' }));
+  a.download = 'rehearsal-history.csv'; document.body.appendChild(a); a.click(); a.remove();
+}
+function refresh() { VIEW = sorted(filtered()); renderTable(); renderChart(); }
+async function init() {
+  const r = await fetch('/api/history', { credentials: 'same-origin' });
+  ROWS = r.ok ? await r.json() : [];
+  opts($('#fClient'), [...new Set(ROWS.map(r => r.client).filter(Boolean))].sort(), 'All clients');
+  opts($('#fPres'), [...new Set(ROWS.flatMap(r => r.presenters))].sort(), 'Everyone');
+  refresh();
+}
+['q', 'fClient', 'fPres', 'fType', 'fFrom', 'fTo'].forEach(id => $('#' + id).addEventListener('input', refresh));
+$('#clear').onclick = () => { ['q', 'fClient', 'fPres', 'fType', 'fFrom', 'fTo'].forEach(id => $('#' + id).value = ''); refresh(); };
+$('#csv').onclick = csv;
+$('#tblToggle').onclick = e => { const on = e.target.getAttribute('aria-pressed') !== 'true'; e.target.setAttribute('aria-pressed', on); e.target.textContent = on ? 'View as chart' : 'View as table';
+  $('#trendTable').style.display = on ? '' : 'none'; $('#viz').style.display = $('#legend').style.display = on ? 'none' : ''; };
+$('#tbl thead').addEventListener('click', e => { const th = e.target.closest('th[data-k]'); if (!th) return; const k = th.dataset.k; sort = { k, dir: sort.k === k ? -sort.dir : (k === 'started' || th.classList.contains('n') ? -1 : 1) }; refresh(); });
+$('#tbl thead').addEventListener('keydown', e => { if (e.key === 'Enter') e.target.click(); });
+init();
+</script>
+</body>
+</html>

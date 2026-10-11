@@ -86,7 +86,7 @@ tr.clickable{cursor:pointer}tr.clickable:hover td{background:var(--bg)}
 <body>
 <header>
   <h1>Pitch Rehearsal Coach</h1>
-  <div class="steps"><span class="step on" id="st1">1 Setup</span><span class="step" id="st2">2 Pre-read</span><span class="step">3 Rehearse</span><a class="step" href="/settings" style="text-decoration:none">⚙ Settings</a></div>
+  <div class="steps"><span class="step on" id="st1">1 Setup</span><span class="step" id="st2">2 Pre-read</span><span class="step">3 Rehearse</span><a class="step" href="/history" style="text-decoration:none">History</a><a class="step" href="/settings" style="text-decoration:none">⚙ Settings</a></div>
 </header>
 <main>
 
@@ -108,6 +108,7 @@ tr.clickable{cursor:pointer}tr.clickable:hover td{background:var(--bg)}
     <h2>The pitch</h2>
     <p class="hint">Title is usually the client and the opportunity.</p>
     <div class="grid">
+      <div><label>Client</label><input type="text" id="client" placeholder="AEG"></div>
       <div><label>Pitch title</label><input type="text" id="title" placeholder="AEG Cooking Demonstration Program 2027"></div>
       <div><label>Channel / industry</label>
         <select id="channel">
@@ -369,7 +370,7 @@ document.querySelectorAll('input[name=mode]').forEach(r => r.onchange = applyMod
 function collectSettings() {
   const num = s => { const v = $(s).value; return v === '' ? null : +v; };
   return {
-    mode: mode(), title: $('#title').value.trim(), channel: $('#channel').value, minutes: num('#minutes'),
+    mode: mode(), client: $('#client').value.trim(), title: $('#title').value.trim(), channel: $('#channel').value, minutes: num('#minutes'),
     interjection: +$('#interj').value, difficulty: +$('#diff').value, ignore_topics: $('#ignore').value.trim(), guidance: $('#guidance').value.trim(),
     range: mode() === 'review' ? {from: null, to: null} : {from: num('#rFrom'), to: num('#rTo')},
     personas: personas.filter(p => p.include !== false),

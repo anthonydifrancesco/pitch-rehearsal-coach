@@ -453,11 +453,12 @@ function maybeCheck() {
   const k = S.readyScale || 1, ready = (Date.now() - S.slideStartAt) / 1000 >= need[0] * k && S.slideWords >= need[1] * k;
   if (ready && S.wordsSince >= 25) checkTurn();
 }
+function logMeta() { return { presenter: S.presenter, session_type: S.stype || 'full', range: S.range }; }
 function tick() {
   $('#clock').textContent = mmss(el());
   maybeCheck();
   if (S.dirty && S.rid && (S.phase === 'pitch' || S.phase === 'qa')) { S.dirty = false;
-    api(`/api/sessions/${S.sid}/rehearsals/${S.rid}/log`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ events: S.events }) }).catch(() => { S.dirty = true; }); }
+    api(`/api/sessions/${S.sid}/rehearsals/${S.rid}/log`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ events: S.events, meta: logMeta() }) }).catch(() => { S.dirty = true; }); }
 }
 
 /* ================= pause / finish / Q&A ================= */
@@ -560,7 +561,8 @@ async function start() {
     const startSlide = +$('#startSlide').value;
     $('#liveInt').value = S.settings.interjection; $('#liveIntV').textContent = S.settings.interjection;
     $('#liveInt').oninput = () => { $('#liveIntV').textContent = $('#liveInt').value; };
-    const stype = document.querySelector('input[name=stype]:checked').value; S.qaOnly = stype === 'qa';
+    const stype = document.querySelector('input[name=stype]:checked').value; S.qaOnly = stype === 'qa'; S.stype = stype;
+    api(`/api/sessions/${S.sid}/rehearsals/${S.rid}/log`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ events: [], meta: logMeta() }) }).catch(() => {});
     if (stype === 'quiet') { $('#liveInt').value = 0; $('#liveIntV').textContent = 0; $('#panelOn').checked = false; $('#liveIntWrap').classList.add('hidden'); $('#panelOn').parentElement.classList.add('hidden'); }
     members(); show('liveWrap'); $('#clock').classList.remove('hidden');
     S.t0 = Date.now(); S.phase = 'pitch'; setPhase('pitch', 'Live', true);
